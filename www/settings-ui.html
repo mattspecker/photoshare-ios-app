@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-Upload Settings</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      border-radius: 15px;
+      text-align: center;
+      margin-bottom: 30px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+    .stat-card {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .stat-number {
+      font-size: 2em;
+      font-weight: bold;
+      color: #667eea;
+    }
+    .stat-label {
+      color: #666;
+      font-size: 0.9em;
+      margin-top: 5px;
+    }
+    .event-card {
+      background: white;
+      border-radius: 15px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      transition: all 0.3s ease;
+    }
+    .event-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    }
+    .event-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .event-title {
+      font-size: 1.2em;
+      font-weight: 600;
+      color: #333;
+    }
+    .event-status {
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.8em;
+      font-weight: 500;
+    }
+    .status-live {
+      background: #d4edda;
+      color: #155724;
+    }
+    .status-upcoming {
+      background: #fff3cd;
+      color: #856404;
+    }
+    .status-ended {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .event-details {
+      color: #666;
+      font-size: 0.9em;
+      margin-bottom: 15px;
+      line-height: 1.5;
+    }
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 15px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 10px;
+    }
+    .toggle-label {
+      font-weight: 500;
+      color: #333;
+    }
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 28px;
+    }
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 28px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background-color: #667eea;
+    }
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+    .settings-panel {
+      display: none;
+      margin-top: 15px;
+      padding: 15px;
+      background: #e3f2fd;
+      border-radius: 10px;
+      border-left: 4px solid #2196f3;
+    }
+    .settings-panel.show {
+      display: block;
+    }
+    .setting-group {
+      margin: 10px 0;
+    }
+    .setting-label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #333;
+    }
+    select, input[type="datetime-local"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    .time-range {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 5px;
+    }
+    .btn {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.3s;
+    }
+    .btn:hover {
+      background: #5a67d8;
+    }
+    .btn-outline {
+      background: transparent;
+      color: #667eea;
+      border: 1px solid #667eea;
+    }
+    .btn-outline:hover {
+      background: #667eea;
+      color: white;
+    }
+    .log {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      padding: 10px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📱 Auto-Upload Settings</h1>
+      <p>Manage automatic photo uploads for your events</p>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-number" id="totalEvents">-</div>
+        <div class="stat-label">Total Events</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="enabledEvents">-</div>
+        <div class="stat-label">Auto-Upload Enabled</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="liveEvents">-</div>
+        <div class="stat-label">Currently Live</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="upcomingEvents">-</div>
+        <div class="stat-label">Upcoming Events</div>
+      </div>
+    </div>
+
+    <div style="text-align: center; margin-bottom: 30px;">
+      <button class="btn" onclick="refreshData()">🔄 Refresh Data</button>
+      <button class="btn btn-outline" onclick="exportSettings()">📊 Export Settings</button>
+      <button class="btn btn-outline" onclick="showDebugInfo()">🔧 Debug Info</button>
+    </div>
+
+    <div id="eventsContainer">
+      <!-- Events will be populated here -->
+    </div>
+
+    <div id="log" class="log" style="display: none;">
+      Auto-Upload Settings Log
+      ========================
+    </div>
+  </div>
+
+  <script src="./config.js"></script>
+  <script src="./autoUploadSettings.js"></script>
+  <script>
+    let isInitialized = false;
+
+    // Logging
+    function log(message) {
+      const logElement = document.getElementById('log');
+      if (logElement.style.display === 'none') {
+        logElement.style.display = 'block';
+      }
+      logElement.textContent += new Date().toLocaleTimeString() + ': ' + message + '\n';
+      logElement.scrollTop = logElement.scrollHeight;
+    }
+
+    // Initialize the settings system
+    async function initializeSettings() {
+      try {
+        log('🚀 Initializing Auto-Upload Settings...');
+        
+        // Mock Supabase client and user for demo
+        const mockSupabaseClient = {
+          from: () => ({
+            select: () => ({
+              eq: () => ({ data: [], error: null })
+            }),
+            update: () => ({
+              eq: () => ({ error: null })
+            })
+          })
+        };
+        
+        const mockUser = {
+          id: 'user_123',
+          email: 'demo@photo-share.app'
+        };
+
+        const initialized = await window.initializeAutoUploadSettings(mockSupabaseClient, mockUser);
+        
+        if (initialized) {
+          isInitialized = true;
+          log('✅ Settings initialized successfully');
+          await loadAndDisplayData();
+        } else {
+          throw new Error('Initialization failed');
+        }
+
+      } catch (error) {
+        log('❌ Error initializing settings: ' + error.message);
+        console.error(error);
+      }
+    }
+
+    // Load and display user data
+    async function loadAndDisplayData() {
+      try {
+        // Get user events
+        const events = window.getUserEvents();
+        displayEvents(events);
+
+        // Update statistics
+        const stats = window.getAutoUploadStats();
+        updateStats(stats);
+
+        log(`📊 Loaded ${events.length} events`);
+
+      } catch (error) {
+        log('❌ Error loading data: ' + error.message);
+        console.error(error);
+      }
+    }
+
+    // Display events in the UI
+    function displayEvents(events) {
+      const container = document.getElementById('eventsContainer');
+      container.innerHTML = '';
+
+      if (events.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #666;">No events found.</p>';
+        return;
+      }
+
+      events.forEach(event => {
+        const eventCard = createEventCard(event);
+        container.appendChild(eventCard);
+      });
+    }
+
+    // Create event card HTML
+    function createEventCard(event) {
+      const card = document.createElement('div');
+      card.className = 'event-card';
+      card.innerHTML = `
+        <div class="event-header">
+          <div class="event-title">${event.name}</div>
+          <div class="event-status ${getStatusClass(event)}">${getStatusText(event)}</div>
+        </div>
+        <div class="event-details">
+          📅 ${formatDate(event.startTime)} - ${formatDate(event.endTime)}<br>
+          👤 Organized by ${event.organizerName}<br>
+          👥 ${event.participantCount} participants<br>
+          📝 ${event.description}
+        </div>
+        <div class="toggle-container">
+          <div class="toggle-label">
+            📤 Auto-Upload Photos
+            <div style="font-size: 0.8em; color: #666; margin-top: 2px;">
+              ${event.autoUploadEnabled ? 'Photos will be automatically uploaded' : 'Manual upload only'}
+            </div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" ${event.autoUploadEnabled ? 'checked' : ''} 
+                   onchange="toggleAutoUpload('${event.id}', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="settings-panel ${event.autoUploadEnabled ? 'show' : ''}" id="settings-${event.id}">
+          <div class="setting-group">
+            <label class="setting-label">Upload Quality</label>
+            <select onchange="updateUploadQuality('${event.id}', this.value)">
+              <option value="high" ${event.uploadSettings.quality === 'high' ? 'selected' : ''}>High Quality (95%)</option>
+              <option value="medium" ${event.uploadSettings.quality === 'medium' ? 'selected' : ''}>Medium Quality (80%)</option>
+              <option value="low" ${event.uploadSettings.quality === 'low' ? 'selected' : ''}>Low Quality (65%)</option>
+            </select>
+          </div>
+          <div class="setting-group">
+            <label class="setting-label">Upload Window</label>
+            <div class="time-range">
+              <input type="datetime-local" 
+                     value="${formatDateTimeLocal(event.uploadWindow.start)}"
+                     onchange="updateUploadWindow('${event.id}')">
+              <input type="datetime-local" 
+                     value="${formatDateTimeLocal(event.uploadWindow.end)}"
+                     onchange="updateUploadWindow('${event.id}')">
+            </div>
+          </div>
+          <div class="toggle-container" style="margin: 10px 0;">
+            <div class="toggle-label" style="font-size: 0.9em;">📶 WiFi Only</div>
+            <label class="toggle">
+              <input type="checkbox" ${event.uploadSettings.wifiOnly ? 'checked' : ''} 
+                     onchange="updateWifiOnly('${event.id}', this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-container" style="margin: 10px 0;">
+            <div class="toggle-label" style="font-size: 0.9em;">🔔 Notifications</div>
+            <label class="toggle">
+              <input type="checkbox" ${event.uploadSettings.notificationsEnabled ? 'checked' : ''} 
+                     onchange="updateNotifications('${event.id}', this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      `;
+      return card;
+    }
+
+    // Helper functions
+    function getStatusClass(event) {
+      if (event.isLive) return 'status-live';
+      if (event.startTime > new Date()) return 'status-upcoming';
+      return 'status-ended';
+    }
+
+    function getStatusText(event) {
+      if (event.isLive) return '🔴 Live Now';
+      if (event.startTime > new Date()) return '⏰ Upcoming';
+      return '⏹️ Ended';
+    }
+
+    function formatDate(date) {
+      return new Date(date).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function formatDateTimeLocal(date) {
+      const d = new Date(date);
+      return d.toISOString().slice(0, 16);
+    }
+
+    function updateStats(stats) {
+      document.getElementById('totalEvents').textContent = stats.totalEvents;
+      document.getElementById('enabledEvents').textContent = stats.enabledEvents;
+      document.getElementById('liveEvents').textContent = stats.liveEnabledEvents;
+      document.getElementById('upcomingEvents').textContent = stats.upcomingEvents;
+    }
+
+    // Event handlers
+    async function toggleAutoUpload(eventId, enabled) {
+      try {
+        log(`${enabled ? '✅ Enabling' : '❌ Disabling'} auto-upload for event ${eventId}`);
+        
+        if (enabled) {
+          await window.enableAutoUploadForEvent(eventId);
+        } else {
+          await window.disableAutoUploadForEvent(eventId);
+        }
+
+        // Show/hide settings panel
+        const settingsPanel = document.getElementById(`settings-${eventId}`);
+        if (settingsPanel) {
+          if (enabled) {
+            settingsPanel.classList.add('show');
+          } else {
+            settingsPanel.classList.remove('show');
+          }
+        }
+
+        // Update stats
+        const stats = window.getAutoUploadStats();
+        updateStats(stats);
+
+        log('✅ Settings updated successfully');
+
+      } catch (error) {
+        log('❌ Error updating settings: ' + error.message);
+        console.error(error);
+      }
+    }
+
+    async function updateUploadQuality(eventId, quality) {
+      try {
+        log(`📊 Updating upload quality for ${eventId}: ${quality}`);
+        await window.autoUploadSettings.updateUploadQuality(eventId, quality);
+        log('✅ Upload quality updated');
+      } catch (error) {
+        log('❌ Error updating quality: ' + error.message);
+      }
+    }
+
+    async function updateUploadWindow(eventId) {
+      // This would typically update the upload window times
+      log(`⏰ Upload window updated for ${eventId}`);
+    }
+
+    async function updateWifiOnly(eventId, wifiOnly) {
+      log(`📶 WiFi-only setting updated for ${eventId}: ${wifiOnly}`);
+    }
+
+    async function updateNotifications(eventId, enabled) {
+      log(`🔔 Notifications ${enabled ? 'enabled' : 'disabled'} for ${eventId}`);
+    }
+
+    async function refreshData() {
+      log('🔄 Refreshing data...');
+      await loadAndDisplayData();
+    }
+
+    function exportSettings() {
+      try {
+        const settings = window.autoUploadSettings.exportSettings();
+        log('📊 Settings exported:');
+        log(JSON.stringify(settings, null, 2));
+      } catch (error) {
+        log('❌ Error exporting settings: ' + error.message);
+      }
+    }
+
+    function showDebugInfo() {
+      try {
+        const status = window.getAutoUploadSettingsStatus();
+        log('🔧 Debug Info:');
+        log(JSON.stringify(status, null, 2));
+      } catch (error) {
+        log('❌ Error getting debug info: ' + error.message);
+      }
+    }
+
+    // Initialize when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+      log('📱 Auto-Upload Settings UI loaded');
+      initializeSettings();
+    });
+  </script>
+</body>
+</html>

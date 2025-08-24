@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-Upload Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .status-box {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 10px 0;
+      border-left: 4px solid #007bff;
+    }
+    .error-box {
+      background: #f8d7da;
+      color: #721c24;
+      border-left-color: #dc3545;
+    }
+    .success-box {
+      background: #d4edda;
+      color: #155724;
+      border-left-color: #28a745;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .log {
+      background: #2d3748;
+      color: #e2e8f0;
+      padding: 15px;
+      border-radius: 5px;
+      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 Auto-Upload System Test</h1>
+    
+    <div class="status-box">
+      <strong>Status:</strong> <span id="status">Initializing...</span>
+    </div>
+    
+    <div class="controls">
+      <button onclick="testInitialization()">🔧 Test Initialization</button>
+      <button onclick="showStatus()">📊 Show Status</button>
+      <button onclick="testPhotoDetection()">📸 Test Photo Detection</button>
+      <button onclick="testUploadQueue()">📦 Test Upload Queue</button>
+      <button onclick="clearLog()">🧹 Clear Log</button>
+    </div>
+    
+    <div id="log" class="log">Auto-Upload Test Console\n======================\n</div>
+  </div>
+
+  <script>
+    // Global variables for testing
+    let isInitialized = false;
+    let mockSupabaseClient = null;
+    let mockUser = null;
+    let autoUploadSystemTest = null;
+    
+    // Create mock Supabase client for testing
+    function createMockSupabaseClient() {
+      return {
+        auth: {
+          getSession: async () => ({ 
+            data: { 
+              session: { 
+                access_token: 'mock_token_' + Date.now(),
+                user: mockUser
+              } 
+            } 
+          })
+        },
+        functions: {
+          invoke: async (functionName, options) => {
+            log(`🌐 Mock Supabase function call: ${functionName}`);
+            log(`📤 Payload size: ${JSON.stringify(options.body).length} bytes`);
+            
+            // Simulate upload success
+            return {
+              data: {
+                success: true,
+                file_id: 'mock_file_' + Date.now(),
+                duplicate: false,
+                message: 'Upload successful (mocked)'
+              },
+              error: null
+            };
+          }
+        },
+        from: (table) => ({
+          select: (columns) => ({
+            eq: (column, value) => ({
+              then: (callback) => {
+                // Mock database response
+                const mockEvents = [
+                  {
+                    event_id: 'mock_event_1',
+                    auto_upload_start_time: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+                    auto_upload_end_time: new Date(Date.now() + 7200000).toISOString(), // 2 hours from now
+                    events: {
+                      id: 'mock_event_1',
+                      name: 'Test Auto-Upload Event',
+                      is_live: true,
+                      created_at: new Date().toISOString()
+                    }
+                  }
+                ];
+                
+                callback({ data: mockEvents, error: null });
+                return Promise.resolve({ data: mockEvents, error: null });
+              }
+            })
+          })
+        }),
+        channel: (channelName) => ({
+          on: (eventType, filter, callback) => {
+            log(`🔔 Subscribed to ${channelName} for ${eventType}`);
+            return {
+              subscribe: () => {
+                log(`✅ Subscription active: ${channelName}`);
+                return Promise.resolve();
+              },
+              unsubscribe: () => {
+                log(`❌ Unsubscribed: ${channelName}`);
+                return Promise.resolve();
+              }
+            };
+          }
+        })
+      };
+    }
+    
+    // Create mock user
+    function createMockUser() {
+      return {
+        id: 'mock_user_' + Date.now(),
+        email: 'test@photoshare.app',
+        name: 'Test User'
+      };
+    }
+    
+    // Logging function
+    function log(message) {
+      const logElement = document.getElementById('log');
+      const timestamp = new Date().toLocaleTimeString();
+      logElement.textContent += `[${timestamp}] ${message}\n`;
+      logElement.scrollTop = logElement.scrollHeight;
+      console.log(message);
+    }
+    
+    // Update status display
+    function updateStatus(message, type = 'info') {
+      const statusElement = document.getElementById('status');
+      statusElement.textContent = message;
+      
+      const statusBox = statusElement.parentElement;
+      statusBox.className = 'status-box';
+      if (type === 'error') {
+        statusBox.classList.add('error-box');
+      } else if (type === 'success') {
+        statusBox.classList.add('success-box');
+      }
+    }
+    
+    // Test functions
+    window.testInitialization = async function() {
+      try {
+        log('🔧 Testing Auto-Upload System Initialization...');
+        updateStatus('Initializing...', 'info');
+        
+        // Create mock clients
+        mockSupabaseClient = createMockSupabaseClient();
+        mockUser = createMockUser();
+        
+        log(`👤 Mock user created: ${mockUser.email}`);
+        
+        // Initialize the system
+        const initialized = await initializeAutoUploadSystem(mockSupabaseClient, mockUser);
+        
+        if (initialized) {
+          isInitialized = true;
+          log('✅ Auto-Upload System initialized successfully!');
+          updateStatus('System Ready', 'success');
+          
+          // Initialize demo
+          await initializeDemo(mockSupabaseClient, mockUser);
+          log('✅ Demo system initialized');
+          
+          // Make demo available globally
+          window.autoUploadDemo = autoUploadDemo;
+          
+        } else {
+          throw new Error('System initialization failed');
+        }
+        
+      } catch (error) {
+        log(`❌ Initialization error: ${error.message}`);
+        updateStatus('Initialization Failed', 'error');
+      }
+    };
+    
+    window.showStatus = function() {
+      if (!isInitialized) {
+        log('⚠️ System not initialized. Run "Test Initialization" first.');
+        return;
+      }
+      
+      try {
+        log('📊 Getting system status...');
+        const status = autoUploadDemo.showSystemStatus();
+        log('✅ Status retrieved successfully');
+        
+      } catch (error) {
+        log(`❌ Status error: ${error.message}`);
+      }
+    };
+    
+    window.testPhotoDetection = async function() {
+      if (!isInitialized) {
+        log('⚠️ System not initialized. Run "Test Initialization" first.');
+        return;
+      }
+      
+      try {
+        log('📸 Testing photo detection...');
+        const triggered = await autoUploadDemo.triggerScanDemo();
+        
+        if (triggered) {
+          log('✅ Photo scan triggered successfully');
+        } else {
+          log('⚠️ Photo scan could not be triggered (monitoring may not be active)');
+        }
+        
+      } catch (error) {
+        log(`❌ Photo detection error: ${error.message}`);
+      }
+    };
+    
+    window.testUploadQueue = function() {
+      if (!isInitialized) {
+        log('⚠️ System not initialized. Run "Test Initialization" first.');
+        return;
+      }
+      
+      try {
+        log('📦 Testing upload queue...');
+        const queueDetails = autoUploadDemo.showUploadQueueDetails();
+        log('✅ Queue details retrieved successfully');
+        
+      } catch (error) {
+        log(`❌ Upload queue error: ${error.message}`);
+      }
+    };
+    
+    window.clearLog = function() {
+      document.getElementById('log').textContent = 'Auto-Upload Test Console\n======================\n';
+    };
+    
+    // Auto-initialize on page load
+    log('📱 Auto-Upload Test Page Loaded');
+    log('Click "Test Initialization" to begin testing');
+    updateStatus('Ready to Initialize', 'info');
+    
+  </script>
+</body>
+</html>

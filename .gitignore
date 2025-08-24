@@ -1,0 +1,103 @@
+# iOS / Xcode
+.DS_Store
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.xcuserstate
+*.xcscmblueprint
+*.xcscheme
+!*.xcworkspace/contents.xcworkspacedata
+!*.xcscheme
+
+# Xcode Patch
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcworkspace/contents.xcworkspacedata
+
+# Capacitor
+ios/App/App/public/*
+ios/App/build/
+ios/App/Pods/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+ios/App/Podfile.lock
+
+# Node.js / npm (if applicable)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Generated files
+ios/App/App/capacitor.config.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# iOS Simulator
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Carthage
+Carthage/Build/
+
+# Swift Package Manager
+.build/
+Package.pins
+Package.resolved
+*.xcodeproj
+
+# Accio dependency management
+Dependencies/
+.accio/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output

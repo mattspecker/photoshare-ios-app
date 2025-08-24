@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhotoShare</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+    }
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 20px;
+    }
+    .logo {
+      font-size: 3em;
+      margin-bottom: 20px;
+    }
+    .loading-text {
+      font-size: 1.2em;
+      color: #666;
+      margin-bottom: 10px;
+    }
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #e3e3e3;
+      border-top: 4px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .test-mode {
+      margin-top: 40px;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .test-link {
+      display: inline-block;
+      background: #007bff;
+      color: white;
+      text-decoration: none;
+      padding: 15px 30px;
+      border-radius: 5px;
+      margin: 10px;
+      font-weight: 500;
+    }
+    .test-link:hover {
+      background: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-container">
+    <div class="logo">📱</div>
+    <h1>PhotoShare</h1>
+    <div class="loading-text" id="loadingText">Initializing EventPhotoPicker...</div>
+    <div class="loading-spinner" id="loadingSpinner"></div>
+    
+    <!-- Test mode section (only shown in development) -->
+    <div class="test-mode" id="testMode" style="display: none;">
+      <h3>EventPhotoPicker Testing</h3>
+      <p>Choose your test:</p>
+      
+      <a href="#" onclick="testEventInfo(); return false;" class="test-link">
+        📸 Test Event Info
+      </a>
+      
+      <a href="#" onclick="testPhotoMetadata(); return false;" class="test-link">
+        📊 Test Photo Metadata
+      </a>
+      
+      <a href="#" onclick="testPhotoPicker(); return false;" class="test-link">
+        🖼️ Test Photo Picker
+      </a>
+      
+      <p><small>EventPhotoPicker Integration Test Mode</small></p>
+    </div>
+  </div>
+
+  <!-- Core Scripts -->
+  <script src="./config.js"></script>
+  
+  <!-- EventPhotoPicker Integration -->
+  <script src="./eventPhotoPicker.js"></script>
+  
+  <!-- UploadManager Plugin -->
+  <script src="./uploadManager.js"></script>
+  
+  <!-- Website Integration for photo-share.app -->
+  <script src="./photo-share-app-integration.js"></script>
+  
+  <!-- App Initialization -->
+  <script>
+    let isNativeApp = false;
+    
+    // Check if we're running in Capacitor
+    document.addEventListener('DOMContentLoaded', async function() {
+      console.log('📱 PhotoShare app starting...');
+      
+      // Check if we're in the native app
+      if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+        isNativeApp = true;
+        console.log('✅ Running in native iOS app');
+        
+        updateLoadingText('EventPhotoPicker ready - Press and hold screen for 3 seconds to show test mode');
+        
+        // Add touch handler for test mode
+        let touchTimer;
+        document.addEventListener('touchstart', () => {
+          touchTimer = setTimeout(() => {
+            showTestMode();
+          }, 3000);
+        });
+        
+        document.addEventListener('touchend', () => {
+          clearTimeout(touchTimer);
+        });
+        
+        // Navigate to photo-share.app after initialization
+        setTimeout(() => {
+          console.log('🌐 Redirecting to photo-share.app...');
+          window.location.href = 'https://photo-share.app';
+        }, 3000);
+        
+      } else {
+        console.log('🌐 Running in web browser - showing test mode');
+        
+        updateLoadingText('Development mode detected');
+        
+        // In browser, show test options
+        setTimeout(() => {
+          document.getElementById('loadingSpinner').style.display = 'none';
+          document.getElementById('testMode').style.display = 'block';
+          updateLoadingText('EventPhotoPicker test tools ready');
+        }, 1500);
+      }
+    });
+    
+    function updateLoadingText(text) {
+      document.getElementById('loadingText').textContent = text;
+    }
+    
+    function showTestMode() {
+      document.getElementById('loadingSpinner').style.display = 'none';
+      document.getElementById('testMode').style.display = 'block';
+      updateLoadingText('Test mode activated');
+    }
+    
+    // Test functions are exposed by eventPhotoPicker.js
+    // testEventInfo(), testPhotoMetadata(), testPhotoPicker()
+    
+    // Handle back button in native app
+    if (window.Capacitor) {
+      document.addEventListener('ionBackButton', (ev) => {
+        ev.detail.register(10, () => {
+          console.log('📱 Back button pressed');
+        });
+      });
+    }
+
+    // Global error handler
+    window.addEventListener('error', function(e) {
+      console.error('❌ App error:', e.error);
+      updateLoadingText('Error occurred - see console for details');
+    });
+
+    // Test simple plugin
+    window.testSimplePlugin = async function() {
+        console.log('🧪 Testing EventPhotoPickerSimple...');
+        try {
+            const plugin = window.Capacitor.Plugins.EventPhotoPickerSimple;
+            if (!plugin) throw new Error('EventPhotoPickerSimple plugin not found');
+            const result = await plugin.testSimple();
+            console.log('✅ EventPhotoPickerSimple SUCCESS:', result);
+            return result;
+        } catch (error) {
+            console.error('❌ EventPhotoPickerSimple FAILED:', error);
+            return { error: error.message };
+        }
+    };
+
+    // Expose debugging functions
+    window.PhotoShareDebug = {
+      isNative: () => isNativeApp,
+      getStatus: () => window.EventPhotoPickerApp?.getStatus?.(),
+      testEventInfo: () => window.testEventInfo?.(),
+      testPhotoMetadata: () => window.testPhotoMetadata?.(),
+      testPhotoPicker: () => window.testPhotoPicker?.(),
+      testSimplePlugin: () => window.testSimplePlugin?.(),
+      listPlugins: () => {
+        console.log('📋 Available Capacitor plugins:');
+        console.log(Object.keys(window.Capacitor?.Plugins || {}));
+        return Object.keys(window.Capacitor?.Plugins || {});
+      }
+    };
+  </script>
+</body>
+</html>

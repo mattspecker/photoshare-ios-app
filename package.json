@@ -1,0 +1,37 @@
+{
+  "name": "iosapp2",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "ios:sync": "npx cap sync ios",
+    "ios:open": "npx cap open ios",
+    "ios:run": "npx cap run ios",
+    "cap:update": "npx cap update"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@capacitor-community/apple-sign-in": "^7.0.1",
+    "@capacitor-community/barcode-scanner": "^4.0.1",
+    "@capacitor-community/date-picker": "^7.0.0",
+    "@capacitor-community/photoviewer": "^7.0.0",
+    "@capacitor-firebase/app": "^7.3.0",
+    "@capacitor-firebase/authentication": "^7.3.0",
+    "@capacitor/app": "^7.0.2",
+    "@capacitor/camera": "^7.0.2",
+    "@capacitor/cli": "^7.4.2",
+    "@capacitor/core": "^7.4.2",
+    "@capacitor/device": "^7.0.2",
+    "@capacitor/dialog": "^7.0.2",
+    "@capacitor/filesystem": "^7.1.4",
+    "@capacitor/haptics": "^7.0.2",
+    "@capacitor/ios": "^7.4.2",
+    "@capacitor/keyboard": "^7.0.2",
+    "@capacitor/preferences": "^7.0.2",
+    "@capacitor/status-bar": "^7.0.2",
+    "firebase": "^11.10.0",
+    "qr-scanner": "^1.4.2"
+  }
+}

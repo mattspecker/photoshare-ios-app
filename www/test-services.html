@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Service Test</title>
+</head>
+<body>
+    <div id="output"></div>
+    
+    <script>
+        // Define showToast
+        window.showToast = function(message, type) {
+            console.log(`${type}: ${message}`);
+        };
+        
+        function log(message) {
+            document.getElementById('output').innerHTML += message + '<br>';
+            console.log(message);
+        }
+    </script>
+    
+    <script src="./uploadStatusSharingService.js"></script>
+    <script src="./reliableUploadService.js"></script>
+    <script src="./batchPhotoProcessingService.js"></script>
+    
+    <script>
+        log('Testing service loading...');
+        log('window.uploadStatusSharingService: ' + typeof window.uploadStatusSharingService);
+        log('window.reliableUploadService: ' + typeof window.reliableUploadService);
+        log('window.batchPhotoProcessingService: ' + typeof window.batchPhotoProcessingService);
+        
+        if (window.uploadStatusSharingService) {
+            log('UploadStatusSharingService methods:');
+            log('- testStatusSharing: ' + typeof window.uploadStatusSharingService.testStatusSharing);
+            log('- getServiceStatus: ' + typeof window.uploadStatusSharingService.getServiceStatus);
+        }
+        
+        if (window.reliableUploadService) {
+            log('ReliableUploadService methods:');
+            log('- testReliableUpload: ' + typeof window.reliableUploadService.testReliableUpload);
+            log('- getUploadStatus: ' + typeof window.reliableUploadService.getUploadStatus);
+        }
+        
+        // Test functions
+        log('Function availability:');
+        log('window.initializeUploadStatusSharing: ' + typeof window.initializeUploadStatusSharing);
+        log('window.queueReliablePhotoUpload: ' + typeof window.queueReliablePhotoUpload);
+    </script>
+</body>
+</html>

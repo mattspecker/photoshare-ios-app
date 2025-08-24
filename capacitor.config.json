@@ -1,0 +1,55 @@
+{
+  "appId": "com.photoshare.photo-share",
+  "appName": "PhotoShare",
+  "webDir": "www",
+  "server": {
+    "url": "https://photo-share.app",
+    "cleartext": false
+  },
+  "plugins": {
+    "FirebaseApp": {
+      "file": "GoogleService-Info.plist"
+    },
+    "FirebaseAuthentication": {
+      "skipNativeAuth": false,
+      "providers": ["google.com"]
+    },
+    "Camera": {
+      "permissions": ["camera", "photos"]
+    },
+    "StatusBar": {
+      "style": "DEFAULT",
+      "backgroundColor": "#ffffff",
+      "overlaysWebView": false
+    },
+    "EventPhotoPicker": {},
+    "UploadManager": {},
+    "PhotoLibraryMonitor": {}
+  },
+  "ios": {
+    "scheme": "App",
+    "contentInset": "automatic",
+    "backgroundColor": "#ffffff",
+    "handleApplicationNotifications": false
+  },
+  "packageClassList": [
+    "SignInWithApple",
+    "BarcodeScanner",
+    "DatePickerPlugin",
+    "PhotoViewerPlugin",
+    "FirebaseAppPlugin",
+    "FirebaseAuthenticationPlugin",
+    "AppPlugin",
+    "CAPCameraPlugin",
+    "DevicePlugin",
+    "FilesystemPlugin",
+    "HapticsPlugin",
+    "KeyboardPlugin",
+    "PreferencesPlugin",
+    "StatusBarPlugin",
+    "DialogPlugin",
+    "EventPhotoPicker",
+    "UploadManager",
+    "PhotoLibraryMonitor"
+  ]
+}

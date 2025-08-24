@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Apple Sign-In Capability -->
+    <key>com.apple.developer.applesignin</key>
+    <array>
+        <string>Default</string>
+    </array>
+    
+    <!-- Associated Domains (if needed for universal links) -->
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:photo-share.app</string>
+        <string>webcredentials:photo-share.app</string>
+    </array>
+</dict>
+</plist>

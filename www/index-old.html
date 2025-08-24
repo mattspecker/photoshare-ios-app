@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhotoShare</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+    }
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 20px;
+    }
+    .logo {
+      font-size: 3em;
+      margin-bottom: 20px;
+    }
+    .loading-text {
+      font-size: 1.2em;
+      color: #666;
+      margin-bottom: 10px;
+    }
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #e3e3e3;
+      border-top: 4px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .test-mode {
+      margin-top: 40px;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .test-link {
+      display: inline-block;
+      background: #007bff;
+      color: white;
+      text-decoration: none;
+      padding: 15px 30px;
+      border-radius: 5px;
+      margin: 10px;
+      font-weight: 500;
+    }
+    .test-link:hover {
+      background: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-container">
+    <div class="logo">📱</div>
+    <h1>PhotoShare</h1>
+    <div class="loading-text" id="loadingText">Initializing auto-upload system...</div>
+    <div class="loading-spinner" id="loadingSpinner"></div>
+    
+    <!-- Test mode section (only shown in development) -->
+    <div class="test-mode" id="testMode" style="display: none;">
+      <h3>Development Mode</h3>
+      <p>Choose your testing environment:</p>
+      
+      <a href="simple-test.html" class="test-link">
+        🧪 Simple Test
+      </a>
+      
+      <a href="phase2-test.html" class="test-link" style="background: linear-gradient(45deg, #28a745, #20c997);">
+        🚀 Advanced Test
+      </a>
+      
+      <a href="settings-ui.html" class="test-link" style="background: linear-gradient(45deg, #6f42c1, #5a2d91);">
+        ⚙️ Settings UI
+      </a>
+      
+      <a href="#" onclick="testEventPhotoPicker(); return false;" class="test-link" style="background: linear-gradient(45deg, #ff6b35, #f7931e);">
+        📸 Event Photo Picker
+      </a>
+      
+      <p><small>Production app loads https://photo-share.app automatically</small></p>
+    </div>
+  </div>
+
+  <!-- Load auto-upload system components (temporarily disabled for Event Photo Picker testing) -->
+  <!-- <script src="./native-overlay-dashboard.js"></script> -->
+  <script src="./config.js"></script>
+  <!-- <script src="./reliableUploadService.js"></script> -->
+  <!-- <script src="./uploadStatusSharingService.js"></script> -->
+  <!-- <script src="./autoUploadIntegration.js"></script> -->
+  <!-- <script src="./websiteIntegration.js"></script> -->
+  <!-- <script src="./autoUploadSettings.js"></script> -->
+  <!-- <script src="./photoshare-auto-upload-integration.js"></script> -->
+  <!-- <script src="./production-dashboard.js"></script> -->
+  
+  <!-- Load Event Photo Picker system -->
+  <script src="./eventPhotoPicker.js"></script>
+  
+  <!-- Website integration script for photo-share.app -->
+  <script src="./photo-share-eventpicker-integration.js"></script>
+  
+  <!-- Simple navigation persistence -->
+  <script>
+    // Simple navigation monitoring for EventPhotoPicker
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      console.log('🎯 Native app detected - EventPhotoPicker integration will handle navigation...');
+      
+      // Define the integration script that will be injected after navigation
+      window.PHOTOSHARE_INTEGRATION_SCRIPT = \`
+        console.log('📸 Injecting Event Photo Picker integration...');
+        
+        // Simple HTML Modal Integration for Event Photo Picker
+        class PhotoShareAppIntegration {
+          constructor() {
+            console.log('🚀 PhotoShareAppIntegration constructor called');
+            console.log('🌐 Current URL:', window.location.href);
+            
+            this.isNative = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+            this.eventPhotoPicker = null;
+            this.originalPickImages = null;
+            this.isInitialized = false;
+            
+            console.log('📱 Photo-Share.app running in', this.isNative ? 'native app' : 'web browser');
+            
+            if (this.isNative) {
+              console.log('✅ Native platform detected - initializing integration');
+              this.initialize();
+            } else {
+              console.log('❌ Not native platform - integration disabled');
+            }
+          }
+          
+          async initialize() {
+            try {
+              console.log('🚀 Initializing Event Photo Picker integration...');
+              
+              // Wait for Capacitor plugins to be ready
+              await this.waitForCapacitor();
+              
+              // Check for Event Photo Picker plugin (optional)
+              this.eventPhotoPicker = window.Capacitor?.Plugins?.EventPhotoPicker;
+              
+              if (this.eventPhotoPicker) {
+                console.log('✅ Event Photo Picker plugin detected');
+              } else {
+                console.log('ℹ️ Event Photo Picker plugin not available - using Dialog plugin only');
+              }
+              
+              // Always hook into upload functionality (we have Dialog plugin)
+              this.hookIntoUploadFlow();
+              
+              this.isInitialized = true;
+              console.log('✅ Event Photo Picker integration ready (using native dialogs)');
+            } catch (error) {
+              console.error('❌ Error initializing Event Photo Picker:', error);
+            }
+          }
+          
+          async waitForCapacitor() {
+            return new Promise((resolve) => {
+              const checkCapacitor = () => {
+                if (window.Capacitor && window.Capacitor.Plugins) {
+                  console.log('✅ Capacitor.Plugins available');
+                  console.log('📱 Available plugins:', Object.keys(window.Capacitor.Plugins));
+                  
+                  // Check if Dialog plugin is available
+                  if (window.Capacitor.Plugins.Dialog) {
+                    console.log('✅ Dialog plugin detected');
+                  } else {
+                    console.log('⚠️ Dialog plugin not detected');
+                  }
+                  
+                  resolve();
+                } else {
+                  console.log('⏳ Waiting for Capacitor.Plugins...');
+                  setTimeout(checkCapacitor, 100);
+                }
+              };
+              checkCapacitor();
+            });
+          }
+          
+          hookIntoUploadFlow() {
+            console.log('🔗 Starting comprehensive camera override setup...');
+            
+            const checkForCamera = () => {
+              console.log('🔍 Checking for ALL camera libraries and methods...');
+              
+              // Check ALL possible camera locations
+              const locations = [
+                { name: 'camera', obj: window.camera },
+                { name: 'CapacitorCameraLib', obj: window.CapacitorCameraLib },
+                { name: 'Capacitor.Plugins.Camera', obj: window.Capacitor?.Plugins?.Camera },
+                { name: 'Camera', obj: window.Camera },
+                { name: 'window.Camera', obj: window.Camera },
+                { name: 'navigator.camera', obj: navigator.camera }
+              ];
+              
+              console.log('📱 All camera library locations:');
+              locations.forEach(loc => {
+                console.log(\\\`  \\\${loc.name}: \\\${!!loc.obj} \\\${loc.obj ? '(methods: ' + Object.keys(loc.obj).join(', ') + ')' : ''}\\\`);
+              });
+              
+              // Also check all window properties for camera-related objects
+              const allWindowProps = Object.keys(window).filter(key => 
+                key.toLowerCase().includes('camera') || 
+                key.toLowerCase().includes('capacitor') ||
+                key.toLowerCase().includes('picker') ||
+                key.toLowerCase().includes('image')
+              );
+              console.log('🌐 Window properties related to camera/capacitor/picker/image:', allWindowProps);
+              
+              // Try to override ALL possible camera methods
+              let overrideCount = 0;
+              
+              locations.forEach(loc => {
+                if (loc.obj) {
+                  // Check for various method names
+                  const methodNames = ['pickImages', 'getPhoto', 'getPicture', 'takePicture', 'getImage'];
+                  
+                  methodNames.forEach(methodName => {
+                    if (typeof loc.obj[methodName] === 'function') {
+                      console.log(\\\`🎯 Found \\\${loc.name}.\\\${methodName} - installing override\\\`);
+                      
+                      // Store original
+                      this[\\\`original\\\${methodName}From\\\${loc.name.replace(/[^a-zA-Z0-9]/g, '')}\\\`] = loc.obj[methodName].bind(loc.obj);
+                      
+                      // Override
+                      loc.obj[methodName] = (...args) => {
+                        console.log(\\\`🎯🎯🎯 INTERCEPTED \\\${loc.name}.\\\${methodName}!\\\`, args);
+                        return this.enhancedPickImages(args[0] || {}, methodName, loc.name);
+                      };
+                      
+                      overrideCount++;
+                      console.log(\\\`✅ \\\${loc.name}.\\\${methodName} successfully overridden\\\`);
+                    }
+                  });
+                }
+              });
+              
+              // SPECIAL CHECK: Look specifically for the camera.pickImages method we saw in the logs
+              if (window.camera && typeof window.camera.pickImages === 'function') {
+                console.log('🎯 FOUND THE EXACT METHOD: window.camera.pickImages');
+                console.log('📋 window.camera object:', window.camera);
+                console.log('📋 window.camera.pickImages type:', typeof window.camera.pickImages);
+                
+                // Store the original
+                this.originalCameraPickImages = window.camera.pickImages.bind(window.camera);
+                
+                // Override it
+                window.camera.pickImages = (args) => {
+                  console.log('🎯🎯🎯 INTERCEPTED window.camera.pickImages!', args);
+                  console.log('📱 Call details:', {
+                    callbackId: args?.callbackId,
+                    pluginId: args?.pluginId,
+                    methodName: args?.methodName,
+                    options: args?.options
+                  });
+                  
+                  // Show our dialog instead
+                  return this.enhancedPickImages(args?.options || {}, 'pickImages', 'window.camera');
+                };
+                
+                overrideCount++;
+                console.log('✅ SUCCESSFULLY OVERRIDDEN window.camera.pickImages!');
+              } else {
+                console.log('❌ window.camera.pickImages not found');
+                console.log('🔍 window.camera exists:', !!window.camera);
+                if (window.camera) {
+                  console.log('🔍 window.camera methods:', Object.keys(window.camera));
+                }
+              }
+              
+              console.log(\\\`📊 Total camera method overrides installed: \\\${overrideCount}\\\`);
+              return overrideCount > 0;
+            };
+            
+            // Try immediately
+            if (!checkForCamera()) {
+              // If not available, check periodically
+              const checkInterval = setInterval(() => {
+                if (checkForCamera()) {
+                  clearInterval(checkInterval);
+                }
+              }, 500);
+              
+              // Stop checking after 15 seconds
+              setTimeout(() => {
+                clearInterval(checkInterval);
+                console.warn('⚠️ No camera methods found after 15 seconds - trying one more comprehensive scan...');
+                
+                // Final attempt with even more aggressive scanning
+                console.log('🔍 FINAL SCAN - All window properties:');
+                Object.keys(window).forEach(key => {
+                  const obj = window[key];
+                  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+                    const methods = Object.keys(obj).filter(prop => typeof obj[prop] === 'function');
+                    if (methods.some(m => m.toLowerCase().includes('pick') || m.toLowerCase().includes('camera') || m.toLowerCase().includes('image'))) {
+                      console.log(\\\`  \\\${key}: \\\${methods.join(', ')}\\\`);
+                    }
+                  }
+                });
+              }, 15000);
+            }
+          }
+          
+          async enhancedPickImages(options = {}, methodName = 'pickImages', sourceName = 'unknown') {
+            console.log(\\\`🎯🎯🎯 ENHANCED \\\${methodName.toUpperCase()} CALLED FROM \\\${sourceName}! 🎯🎯🎯\\\`);
+            console.log(\\\`📸 Method \\\${sourceName}.\\\${methodName} intercepted with options:\\\`, options);
+            
+            try {
+              // Get current event context
+              const eventData = this.getCurrentEventData();
+              
+              console.log('🎯 Always showing Event Information Modal for testing');
+              
+              // Show comprehensive event info modal as the ONLY interaction
+              const eventInfoResult = await this.showEventInfo(eventData);
+              
+              console.log('✅ Event Information Modal completed:', eventInfoResult);
+              
+              // For now, just throw an error to prevent camera picker from opening
+              throw new Error(\\\`Event Information Modal shown from \\\${sourceName}.\\\${methodName} - camera picker disabled for testing\\\`);
+              
+            } catch (error) {
+              console.error(\\\`❌ Enhanced \\\${methodName} error:\\\`, error);
+              
+              // For testing, don't fall back - we want to see the modal working
+              console.log('🔄 Not falling back to original - testing modal only');
+              throw error;
+            }
+          }
+          
+          async showEventInfo(eventData) {
+            console.log('🚀 showEventInfo called - Using native dialog');
+            console.log('📋 Event data received:', eventData);
+            
+            try {
+              // Use Capacitor Dialog plugin for native alert
+              const dialogPlugin = window.Capacitor?.Plugins?.Dialog;
+              
+              if (dialogPlugin) {
+                console.log('✅ Using native Capacitor Dialog');
+                
+                const message = \\\`🎯 Event Photo Picker Active!
+
+Event: \\\${eventData.eventName || 'Unknown Event'}
+ID: \\\${eventData.eventId || 'Unknown'}
+Member: \\\${eventData.memberId || 'Unknown Member'}
+
+This upload will use the Event Photo Picker to show only photos from this event's time period.
+
+📱 This feature is currently in testing mode.\\\`;
+                
+                const result = await dialogPlugin.confirm({
+                  title: '📸 Event Photo Upload',
+                  message: message,
+                  okButtonTitle: 'Continue',
+                  cancelButtonTitle: 'Cancel'
+                });
+                
+                if (result.value) {
+                  console.log('✅ User confirmed event info dialog');
+                  return {
+                    action: 'continue',
+                    eventData: eventData,
+                    timestamp: new Date().toISOString()
+                  };
+                } else {
+                  console.log('❌ User cancelled event info dialog');
+                  throw new Error('Event info dialog cancelled by user');
+                }
+              } else {
+                console.log('⚠️ Dialog plugin not available, using browser alert');
+                
+                // Fallback to browser alert
+                const confirmed = confirm(\\\`📸 Event Photo Upload
+
+🎯 Event Photo Picker Active!
+
+Event: \\\${eventData.eventName || 'Unknown Event'}
+ID: \\\${eventData.eventId || 'Unknown'}
+
+This upload will use the Event Photo Picker to show only photos from this event's time period.
+
+📱 This feature is currently in testing mode.
+
+Click OK to continue or Cancel to abort.\\\`);
+                
+                if (confirmed) {
+                  console.log('✅ User confirmed browser alert');
+                  return {
+                    action: 'continue',
+                    eventData: eventData,
+                    timestamp: new Date().toISOString()
+                  };
+                } else {
+                  console.log('❌ User cancelled browser alert');
+                  throw new Error('Event info alert cancelled by user');
+                }
+              }
+              
+            } catch (error) {
+              console.error('❌ Error showing event info:', error);
+              throw error;
+            }
+          }
+          
+          createEventInfoModal(eventData) {
+            const modal = document.createElement('div');
+            modal.className = 'event-info-modal';
+            modal.innerHTML = \\\`
+              <div class="event-modal-backdrop"></div>
+              <div class="event-modal-content">
+                <div class="event-modal-header">
+                  <h2>📸 Event Photo Upload</h2>
+                  <button class="event-modal-close" type="button">&times;</button>
+                </div>
+                <div class="event-modal-body">
+                  <div class="event-info-card">
+                    <div class="event-info-row">
+                      <span class="event-info-label">Event:</span>
+                      <span class="event-info-value">\\\${eventData.eventName || 'Unknown Event'}</span>
+                    </div>
+                    <div class="event-info-row">
+                      <span class="event-info-label">Event ID:</span>
+                      <span class="event-info-value">\\\${eventData.eventId || 'Unknown'}</span>
+                    </div>
+                    <div class="event-info-row">
+                      <span class="event-info-label">Member:</span>
+                      <span class="event-info-value">\\\${eventData.memberId || 'Unknown Member'}</span>
+                    </div>
+                  </div>
+                  <div class="modal-message">
+                    <p><strong>🎯 Event Photo Picker is active!</strong></p>
+                    <p>This upload will use the Event Photo Picker to show only photos from this event's time period.</p>
+                    <p><small>📱 This feature is currently in testing mode</small></p>
+                  </div>
+                </div>
+                <div class="event-modal-footer">
+                  <button class="event-modal-cancel" type="button">Cancel</button>
+                  <button class="event-modal-continue" type="button">Continue</button>
+                </div>
+              </div>
+            \\\`;
+            
+            // Add styles if not already added
+            if (!document.querySelector('#event-modal-styles')) {
+              const style = document.createElement('style');
+              style.id = 'event-modal-styles';
+              style.textContent = \\\`
+                .event-info-modal {
+                  position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000;
+                  opacity: 0; transition: opacity 0.3s ease;
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }
+                .event-info-modal.show { opacity: 1; }
+                .event-modal-backdrop { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); }
+                .event-modal-content {
+                  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                  background: white; border-radius: 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+                  max-width: 90%; max-height: 90%; width: 400px; overflow: hidden;
+                }
+                .event-modal-header {
+                  display: flex; justify-content: space-between; align-items: center; padding: 20px;
+                  border-bottom: 1px solid #eee; background: linear-gradient(135deg, #007AFF, #5856D6); color: white;
+                }
+                .event-modal-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
+                .event-modal-close {
+                  background: none; border: none; color: white; font-size: 24px; cursor: pointer;
+                  padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+                  border-radius: 50%; transition: background-color 0.2s;
+                }
+                .event-modal-close:hover { background: rgba(255, 255, 255, 0.2); }
+                .event-modal-body { padding: 20px; max-height: 400px; overflow-y: auto; }
+                .event-info-card { background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+                .event-info-row { display: flex; margin-bottom: 8px; }
+                .event-info-row:last-child { margin-bottom: 0; }
+                .event-info-label { font-weight: 600; color: #6c757d; min-width: 80px; margin-right: 12px; }
+                .event-info-value { color: #212529; flex: 1; word-break: break-all; }
+                .modal-message { padding: 16px; background: linear-gradient(135deg, #e3f2fd, #f3e5f5); border-radius: 8px; border-left: 4px solid #007AFF; }
+                .modal-message p { margin: 0 0 8px 0; line-height: 1.4; }
+                .modal-message p:last-child { margin-bottom: 0; }
+                .event-modal-footer {
+                  padding: 16px 20px; border-top: 1px solid #eee; display: flex; gap: 12px;
+                  justify-content: flex-end; background: #f8f9fa;
+                }
+                .event-modal-cancel, .event-modal-continue {
+                  padding: 10px 20px; border: none; border-radius: 6px; font-weight: 500;
+                  cursor: pointer; transition: all 0.2s; font-size: 14px;
+                }
+                .event-modal-cancel { background: #6c757d; color: white; }
+                .event-modal-cancel:hover { background: #5a6268; }
+                .event-modal-continue { background: #007AFF; color: white; }
+                .event-modal-continue:hover { background: #0056b3; }
+              \\\`;
+              document.head.appendChild(style);
+            }
+            
+            return modal;
+          }
+          
+          getCurrentEventData() {
+            return {
+              eventId: 'test-live-site-event',
+              eventName: 'Live Photo Upload Test',
+              memberId: 'current_user',
+              startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+              endDate: new Date().toISOString(),
+              uploadedPhotoIds: []
+            };
+          }
+        }
+        
+        // Initialize immediately
+        if (!window.photoShareAppIntegration) {
+          window.photoShareAppIntegration = new PhotoShareAppIntegration();
+          
+          // Global test functions
+          window.testEventInfoOnSite = () => {
+            const eventData = window.photoShareAppIntegration.getCurrentEventData();
+            return window.photoShareAppIntegration.showEventInfo(eventData);
+          };
+          
+          console.log('✅ Photo-Share.app Event Photo Picker Integration ready');
+          console.log('🧪 Test: testEventInfoOnSite() - Show event info modal');
+        }
+      \`;
+      
+      // Install the integration after navigation to photo-share.app
+      const installIntegration = () => {
+        if (window.location.href.includes('photo-share.app')) {
+          console.log('🌐 On photo-share.app - injecting Event Photo Picker integration...');
+          
+          try {
+            // Execute the integration script
+            const script = document.createElement('script');
+            script.textContent = window.PHOTOSHARE_INTEGRATION_SCRIPT;
+            document.head.appendChild(script);
+            
+            console.log('✅ Integration script injected successfully');
+          } catch (error) {
+            console.error('❌ Error injecting integration script:', error);
+          }
+        }
+      };
+      
+      // Monitor for navigation to photo-share.app
+      let currentUrl = window.location.href;
+      const checkForNavigation = () => {
+        if (window.location.href !== currentUrl) {
+          currentUrl = window.location.href;
+          console.log('🔄 Navigation detected:', currentUrl);
+          setTimeout(installIntegration, 500);
+        }
+      };
+      
+      // Set up periodic checking
+      setInterval(checkForNavigation, 1000);
+      
+      // Also install immediately if already on photo-share.app
+      setTimeout(installIntegration, 1000);
+    }
+  </script>
+
+  <script>
+    let isNativeApp = false;
+    let redirectTimeout;
+    
+    // Check if we're running in Capacitor
+    document.addEventListener('DOMContentLoaded', async function() {
+      console.log('📱 PhotoShare app starting...');
+      
+      // Check if we're in the native app
+      if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+        isNativeApp = true;
+        console.log('✅ Running in native iOS app');
+        
+        updateLoadingText('Native app ready - Press and hold screen for 3 seconds to show test mode');
+        
+        // Add touch handler for test mode
+        let touchTimer;
+        document.addEventListener('touchstart', () => {
+          touchTimer = setTimeout(() => {
+            showTestMode();
+          }, 3000);
+        });
+        
+        document.addEventListener('touchend', () => {
+          clearTimeout(touchTimer);
+        });
+        
+        // Use a different approach - inject the integration via postMessage
+        setTimeout(() => {
+          console.log('🌐 Redirecting to photo-share.app...');
+          window.location.href = 'https://photo-share.app';
+        }, 2000);
+        
+      } else {
+        console.log('🌐 Running in web browser - showing test mode');
+        
+        updateLoadingText('Development mode detected');
+        
+        // In browser, show test options
+        setTimeout(() => {
+          document.getElementById('loadingSpinner').style.display = 'none';
+          document.getElementById('testMode').style.display = 'block';
+          updateLoadingText('Development tools ready');
+        }, 1500);
+      }
+    });
+    
+    function updateLoadingText(text) {
+      document.getElementById('loadingText').textContent = text;
+    }
+    
+    function showTestMode() {
+      document.getElementById('loadingSpinner').style.display = 'none';
+      document.getElementById('testMode').style.display = 'block';
+      updateLoadingText('Test mode activated');
+    }
+    
+    function testEventPhotoPicker() {
+      console.log('📸 Testing Event Photo Picker...');
+      
+      // Check if plugin is available
+      if (window.EventPhotoPicker) {
+        console.log('✅ EventPhotoPicker service available');
+        
+        if (window.demoEventPhotoPicker) {
+          demoEventPhotoPicker();
+        } else {
+          console.log('⚠️ Demo function not available yet, trying manual test...');
+          
+          if (window.EventPhotoPicker.isPluginAvailable()) {
+            console.log('✅ Native plugin is available!');
+            alert('📸 Event Photo Picker is ready!\n\nNative plugin: Available\nDemo interface: Loading...');
+            
+            // Try to create a simple test
+            setTimeout(() => {
+              if (window.demoEventPhotoPicker) {
+                demoEventPhotoPicker();
+              }
+            }, 1000);
+          } else {
+            console.log('❌ Native plugin not available');
+            alert('❌ Native plugin not available\n\nThe EventPhotoPicker plugin needs to be built and running on device.');
+          }
+        }
+      } else {
+        console.log('❌ EventPhotoPicker service not loaded');
+        alert('❌ EventPhotoPicker not loaded\n\nJavaScript files may not be loaded yet.');
+      }
+    }
+
+    // Test Event Info with live event data
+    window.testEventInfo = async function() {
+      try {
+        console.log('🧪 Testing Event Info with live event data...');
+        const result = await window.EventPhotoPicker.showEventInfo({
+          eventName: 'John & Jane Wedding',
+          memberId: 'user_12345',
+          eventId: 'bd1935c5-b9ad-4aad-96d7-96f3db0e551c',
+          startDate: '2025-08-20T14:00:00Z',
+          endDate: '2025-08-21T02:00:00Z'
+        });
+        console.log('✅ Event Info result:', result);
+        return result;
+      } catch (error) {
+        console.error('❌ Event Info test error:', error);
+      }
+    };
+
+    // Test with minimal data to verify all fields are handled
+    window.testEventInfoMinimal = async function() {
+      try {
+        console.log('🧪 Testing Event Info with minimal data...');
+        const result = await window.EventPhotoPicker.showEventInfo({
+          eventName: 'Birthday Party',
+          memberId: 'guest_789',
+          eventId: 'birthday_2025'
+        });
+        console.log('✅ Minimal Event Info result:', result);
+        return result;
+      } catch (error) {
+        console.error('❌ Minimal Event Info test error:', error);
+      }
+    };
+
+    // Test with data from useLocalNotifications.scheduleEventNotifications()
+    window.testEventInfoFromNotifications = async function() {
+      try {
+        console.log('🧪 Testing Event Info with notification-like data...');
+        const result = await window.EventPhotoPicker.showEventInfo({
+          eventName: 'Sarah\'s Graduation Ceremony',
+          memberId: 'family_member_789',
+          eventId: 'graduation_2025_sarah_johnson',
+          startDate: '2025-06-15T09:00:00Z',
+          endDate: '2025-06-15T17:00:00Z'
+        });
+        console.log('✅ Notification Event Info result:', result);
+        return result;
+      } catch (error) {
+        console.error('❌ Notification Event Info test error:', error);
+      }
+    };
+
+    // Handle back button in native app
+    if (window.Capacitor) {
+      document.addEventListener('ionBackButton', (ev) => {
+        ev.detail.register(10, () => {
+          // Handle back button - maybe ask user if they want to exit
+          console.log('📱 Back button pressed');
+        });
+      });
+    }
+
+    // Global error handler for auto-upload system
+    window.addEventListener('error', function(e) {
+      console.error('❌ App error:', e.error);
+      
+      if (e.error && e.error.message && e.error.message.includes('auto-upload')) {
+        updateLoadingText('Auto-upload system error - continuing...');
+        // Continue anyway, don't block the main app
+        if (!isNativeApp && redirectTimeout) {
+          clearTimeout(redirectTimeout);
+          document.getElementById('testMode').style.display = 'block';
+        }
+      }
+    });
+
+    // Expose debugging functions
+    window.PhotoShareDebug = {
+      isNative: () => isNativeApp,
+      reinitialize: () => window.PhotoShareAutoUpload?.reinitialize(),
+      getConfig: () => window.PHOTOSHARE_CONFIG,
+      testMode: () => {
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('testMode').style.display = 'block';
+        updateLoadingText('Debug mode activated');
+      }
+    };
+  </script>
+</body>
+</html>

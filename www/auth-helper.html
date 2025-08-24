@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photo-Share Authentication Helper</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .step {
+      background: #f8f9fa;
+      border-left: 4px solid #007bff;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 5px;
+    }
+    .success {
+      background: #d4edda;
+      border-left-color: #28a745;
+      color: #155724;
+    }
+    .warning {
+      background: #fff3cd;
+      border-left-color: #ffc107;
+      color: #856404;
+    }
+    .error {
+      background: #f8d7da;
+      border-left-color: #dc3545;
+      color: #721c24;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .auth-btn {
+      background: #28a745;
+      font-weight: bold;
+      padding: 12px 20px;
+    }
+    .auth-btn:hover {
+      background: #1e7e34;
+    }
+    input[type="email"], input[type="password"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      margin: 5px 0;
+      font-size: 14px;
+    }
+    .auth-status {
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+      font-weight: bold;
+    }
+    .token-display {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 5px;
+      word-break: break-all;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Photo-Share Authentication Helper</h1>
+    <p>This tool helps you authenticate with photo-share.app for live testing.</p>
+
+    <div id="authStatus" class="auth-status" style="background: #f8d7da; color: #721c24;">
+      ❌ Not authenticated - Click "Check Auth Status" to verify
+    </div>
+
+    <div class="step">
+      <h3>📋 Authentication Methods</h3>
+      <p>Choose one of these methods to get authenticated:</p>
+      
+      <button onclick="checkAuthStatus()" style="background: #6c757d;">🔍 Check Current Auth Status</button>
+      <button onclick="openPhotoShareApp()" class="auth-btn">🌐 1. Login via photo-share.app</button>
+      <button onclick="showTestAuth()" style="background: #17a2b8;">🧪 2. Test Authentication</button>
+      <button onclick="showTokenAuth()" style="background: #6f42c1;">🔑 3. Manual Token Entry</button>
+    </div>
+
+    <div id="method1" class="step" style="display: none;">
+      <h3>🌐 Method 1: Login via photo-share.app (Recommended)</h3>
+      <ol>
+        <li><strong>Open photo-share.app</strong> in a new tab</li>
+        <li><strong>Login with your account</strong> (Google, Apple, or email)</li>
+        <li><strong>Come back here</strong> and click "Check Auth Status"</li>
+        <li><strong>If successful</strong>, tokens will be shared across tabs</li>
+      </ol>
+      <button onclick="openPhotoShareApp()" class="auth-btn">🚀 Open photo-share.app</button>
+      <button onclick="checkAuthStatus()">🔄 Check Status After Login</button>
+    </div>
+
+    <div id="method2" class="step" style="display: none;">
+      <h3>🧪 Method 2: Test Authentication</h3>
+      <p>Create a test account or login with existing credentials:</p>
+      
+      <div style="max-width: 400px;">
+        <input type="email" id="testEmail" placeholder="your@email.com" value="test@photo-share.app">
+        <input type="password" id="testPassword" placeholder="password" value="">
+        <br>
+        <button onclick="testLogin()" class="auth-btn">🔑 Login</button>
+        <button onclick="testSignup()" style="background: #fd7e14;">📝 Sign Up</button>
+      </div>
+      
+      <div class="warning">
+        <strong>Note:</strong> This will create a real account on photo-share.app if signing up.
+      </div>
+    </div>
+
+    <div id="method3" class="step" style="display: none;">
+      <h3>🔑 Method 3: Manual Token Entry</h3>
+      <p>If you have an access token from photo-share.app, paste it here:</p>
+      
+      <textarea id="manualToken" rows="3" style="width: 100%; font-family: monospace; font-size: 11px;" 
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></textarea>
+      <br>
+      <button onclick="setManualToken()" class="auth-btn">🔄 Set Token</button>
+      
+      <div class="warning">
+        <strong>How to get a token:</strong>
+        <ol>
+          <li>Login to photo-share.app</li>
+          <li>Open Developer Tools → Application → Local Storage</li>
+          <li>Look for "sb-" keys containing access_token</li>
+        </ol>
+      </div>
+    </div>
+
+    <div id="tokenInfo" class="step" style="display: none;">
+      <h3>🎯 Current Authentication Info</h3>
+      <div id="tokenDetails"></div>
+    </div>
+
+    <div class="step">
+      <h3>✅ Next Steps After Authentication</h3>
+      <p>Once authenticated, go back to your test page and:</p>
+      <ol>
+        <li><strong>🔌 Connect to Website</strong> - Should now show "✅ Authenticated"</li>
+        <li><strong>⚙️ Initialize Settings</strong> - Will load your real events</li>
+        <li><strong>🚀 Full End-to-End Test</strong> - Complete live testing!</li>
+      </ol>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // Initialize Supabase with live credentials
+    const supabaseUrl = 'https://jgfcfdlfcnmaripgpepl.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpnZmNmZGxmY25tYXJpcGdwZXBsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI1NDM2MjgsImV4cCI6MjA2ODExOTYyOH0.OmkqPDJM8-BKLDo5WxsL8Nop03XxAaygNaToOMKkzGY';
+    
+    let supabase;
+    
+    // Initialize when page loads
+    document.addEventListener('DOMContentLoaded', async function() {
+      try {
+        if (window.supabase) {
+          supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+          console.log('✅ Supabase client initialized');
+          await checkAuthStatus();
+        }
+      } catch (error) {
+        console.error('Error initializing:', error);
+        updateAuthStatus('❌ Failed to initialize Supabase client', 'error');
+      }
+    });
+
+    async function checkAuthStatus() {
+      try {
+        updateAuthStatus('🔄 Checking authentication status...', 'warning');
+        
+        if (!supabase) {
+          throw new Error('Supabase client not initialized');
+        }
+
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          throw error;
+        }
+
+        if (session && session.user) {
+          updateAuthStatus(`✅ Authenticated as: ${session.user.email}`, 'success');
+          showTokenInfo(session);
+          console.log('✅ Authentication successful:', session.user);
+        } else {
+          updateAuthStatus('❌ Not authenticated - Please login first', 'error');
+          console.log('❌ No active session found');
+        }
+
+      } catch (error) {
+        console.error('Auth check error:', error);
+        updateAuthStatus(`❌ Auth check failed: ${error.message}`, 'error');
+      }
+    }
+
+    function updateAuthStatus(message, type) {
+      const statusEl = document.getElementById('authStatus');
+      statusEl.textContent = message;
+      statusEl.className = 'auth-status';
+      
+      switch (type) {
+        case 'success':
+          statusEl.style.background = '#d4edda';
+          statusEl.style.color = '#155724';
+          break;
+        case 'warning':
+          statusEl.style.background = '#fff3cd';
+          statusEl.style.color = '#856404';
+          break;
+        case 'error':
+          statusEl.style.background = '#f8d7da';
+          statusEl.style.color = '#721c24';
+          break;
+      }
+    }
+
+    function showTokenInfo(session) {
+      const tokenInfo = document.getElementById('tokenInfo');
+      const tokenDetails = document.getElementById('tokenDetails');
+      
+      tokenDetails.innerHTML = `
+        <p><strong>User ID:</strong> ${session.user.id}</p>
+        <p><strong>Email:</strong> ${session.user.email}</p>
+        <p><strong>Provider:</strong> ${session.user.app_metadata?.provider || 'email'}</p>
+        <p><strong>Expires:</strong> ${new Date(session.expires_at * 1000).toLocaleString()}</p>
+        <p><strong>Access Token:</strong></p>
+        <div class="token-display">${session.access_token}</div>
+      `;
+      
+      tokenInfo.style.display = 'block';
+    }
+
+    function openPhotoShareApp() {
+      window.open('https://photo-share.app', '_blank');
+      document.getElementById('method1').style.display = 'block';
+      updateAuthStatus('🌐 Opened photo-share.app - Login there and come back', 'warning');
+    }
+
+    function showTestAuth() {
+      document.getElementById('method2').style.display = 'block';
+    }
+
+    function showTokenAuth() {
+      document.getElementById('method3').style.display = 'block';
+    }
+
+    async function testLogin() {
+      const email = document.getElementById('testEmail').value;
+      const password = document.getElementById('testPassword').value;
+
+      if (!email || !password) {
+        alert('Please enter both email and password');
+        return;
+      }
+
+      try {
+        updateAuthStatus('🔄 Logging in...', 'warning');
+        
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email,
+          password: password
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        updateAuthStatus(`✅ Login successful! Welcome ${data.user.email}`, 'success');
+        showTokenInfo(data.session);
+
+      } catch (error) {
+        console.error('Login error:', error);
+        updateAuthStatus(`❌ Login failed: ${error.message}`, 'error');
+      }
+    }
+
+    async function testSignup() {
+      const email = document.getElementById('testEmail').value;
+      const password = document.getElementById('testPassword').value;
+
+      if (!email || !password) {
+        alert('Please enter both email and password');
+        return;
+      }
+
+      if (password.length < 6) {
+        alert('Password must be at least 6 characters');
+        return;
+      }
+
+      try {
+        updateAuthStatus('🔄 Creating account...', 'warning');
+        
+        const { data, error } = await supabase.auth.signUp({
+          email: email,
+          password: password
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (data.user && !data.user.email_confirmed_at) {
+          updateAuthStatus('📧 Account created! Check your email to confirm.', 'warning');
+        } else {
+          updateAuthStatus(`✅ Account created and logged in! Welcome ${data.user.email}`, 'success');
+          showTokenInfo(data.session);
+        }
+
+      } catch (error) {
+        console.error('Signup error:', error);
+        updateAuthStatus(`❌ Signup failed: ${error.message}`, 'error');
+      }
+    }
+
+    async function setManualToken() {
+      const token = document.getElementById('manualToken').value.trim();
+      
+      if (!token) {
+        alert('Please paste an access token');
+        return;
+      }
+
+      try {
+        updateAuthStatus('🔄 Setting manual token...', 'warning');
+        
+        // Try to set the session with the token
+        const { data, error } = await supabase.auth.setSession({
+          access_token: token,
+          refresh_token: '' // We'll need to handle refresh tokens separately
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        updateAuthStatus('✅ Manual token set successfully!', 'success');
+        await checkAuthStatus();
+
+      } catch (error) {
+        console.error('Token error:', error);
+        updateAuthStatus(`❌ Invalid token: ${error.message}`, 'error');
+      }
+    }
+
+    // Set up auth state listener
+    if (window.supabase) {
+      const initSupabase = async () => {
+        supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+        
+        supabase.auth.onAuthStateChange((event, session) => {
+          console.log('Auth state changed:', event, session?.user?.email);
+          if (event === 'SIGNED_IN' && session) {
+            updateAuthStatus(`✅ Authenticated as: ${session.user.email}`, 'success');
+            showTokenInfo(session);
+          } else if (event === 'SIGNED_OUT') {
+            updateAuthStatus('❌ Signed out', 'error');
+            document.getElementById('tokenInfo').style.display = 'none';
+          }
+        });
+      };
+      
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initSupabase);
+      } else {
+        initSupabase();
+      }
+    }
+  </script>
+</body>
+</html>
