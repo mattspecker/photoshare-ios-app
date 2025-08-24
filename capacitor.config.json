@@ -24,7 +24,8 @@
     },
     "EventPhotoPicker": {},
     "UploadManager": {},
-    "PhotoLibraryMonitor": {}
+    "PhotoLibraryMonitor": {},
+    "QRScanner": {}
   },
   "ios": {
     "scheme": "App",
@@ -34,7 +35,6 @@
   },
   "packageClassList": [
     "SignInWithApple",
-    "BarcodeScanner",
     "DatePickerPlugin",
     "PhotoViewerPlugin",
     "FirebaseAppPlugin",
@@ -50,6 +50,7 @@
     "DialogPlugin",
     "EventPhotoPicker",
     "UploadManager",
-    "PhotoLibraryMonitor"
+    "PhotoLibraryMonitor",
+    "QRScanner"
   ]
 }

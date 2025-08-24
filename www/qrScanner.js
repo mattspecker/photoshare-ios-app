@@ -1,4 +1,4 @@
-import { BarcodeScanner } from '@capacitor-community/barcode-scanner';
+// Using native QR scanner plugin via CapacitorPlugins.QRScanner
 import { Capacitor } from '@capacitor/core';
 import QrScanner from 'qr-scanner';
 import { handleCameraPermission, showToast, requestPermissionAgain, startCamera } from './cameraPermissions.js';
@@ -28,7 +28,7 @@ export class QRScannerComponent {
       }
 
       if (Capacitor.isNativePlatform()) {
-        // Use Capacitor Camera for native platforms
+        // Use native QR scanner plugin
         return await this.startNativeScanning();
       } else {
         // Use web-based QR scanner for web platform
@@ -45,20 +45,37 @@ export class QRScannerComponent {
 
   async startNativeScanning() {
     try {
-      showToast('Starting barcode scanner...', 'info');
+      showToast('Starting QR code scanner...', 'info');
       
-      // Start the barcode scanner
-      const result = await BarcodeScanner.startScan();
-      
-      if (result.hasContent) {
-        this.handleScanResult(result.content);
-        return true;
+      // Use the native QR scanner plugin
+      if (window.CapacitorPlugins && window.CapacitorPlugins.QRScanner) {
+        try {
+          const result = await window.CapacitorPlugins.QRScanner.scanQRCode();
+          
+          if (result && result.value) {
+            this.handleScanResult(result.value);
+            return true;
+          } else {
+            showToast('No QR code detected', 'info');
+            return false;
+          }
+        } catch (scanError) {
+          console.error('QR scanner error:', scanError);
+          if (scanError.message && scanError.message.includes('cancelled')) {
+            showToast('QR scanning cancelled', 'info');
+          } else {
+            showToast('QR scanning error: ' + scanError.message, 'error');
+          }
+          return false;
+        }
       } else {
-        showToast('No barcode detected', 'info');
+        console.error('QRScanner plugin not available');
+        console.log('Available plugins:', Object.keys(window.CapacitorPlugins || {}));
+        showToast('QR Scanner plugin not found. Please rebuild the app.', 'error');
         return false;
       }
     } catch (error) {
-      console.error('Barcode scanner error:', error);
+      console.error('QR scanner error:', error);
       if (error.message && error.message.includes('cancelled')) {
         showToast('Scanner cancelled', 'info');
       } else {
@@ -100,39 +117,45 @@ export class QRScannerComponent {
 
   async processImageForQR(dataUrl) {
     try {
-      // Create an image element to process
-      const img = new Image();
-      
-      return new Promise((resolve, reject) => {
-        img.onload = async () => {
-          try {
-            // Create canvas to process the image
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
+      if (Capacitor.isNativePlatform()) {
+        console.log('Image processing for QR codes not implemented in native plugin');
+        showToast('Image QR scanning not available', 'info');
+        return false;
+      } else {
+        // Fallback to web-based scanning for web platform
+        const img = new Image();
+        
+        return new Promise((resolve, reject) => {
+          img.onload = async () => {
+            try {
+              // Create canvas to process the image
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              ctx.drawImage(img, 0, 0);
 
-            // Use QrScanner to scan the canvas
-            const result = await QrScanner.scanImage(canvas, {
-              returnDetailedScanResult: true
-            });
-            
-            this.handleScanResult(result.data);
-            resolve(true);
-          } catch (scanError) {
-            console.error('QR scan error:', scanError);
-            showToast('No QR code found in image', 'error');
-            reject(scanError);
-          }
-        };
-        
-        img.onerror = () => {
-          reject(new Error('Failed to load captured image'));
-        };
-        
-        img.src = dataUrl;
-      });
+              // Use QrScanner to scan the canvas
+              const result = await QrScanner.scanImage(canvas, {
+                returnDetailedScanResult: true
+              });
+              
+              this.handleScanResult(result.data);
+              resolve(true);
+            } catch (scanError) {
+              console.error('QR scan error:', scanError);
+              showToast('No QR code found in image', 'error');
+              reject(scanError);
+            }
+          };
+          
+          img.onerror = () => {
+            reject(new Error('Failed to load captured image'));
+          };
+          
+          img.src = dataUrl;
+        });
+      }
     } catch (error) {
       console.error('Error processing image for QR:', error);
       throw error;
@@ -159,8 +182,10 @@ export class QRScannerComponent {
   stopScanning() {
     try {
       if (Capacitor.isNativePlatform()) {
-        // Stop barcode scanner on native platforms
-        BarcodeScanner.stopScan();
+        // Stop native QR scanner
+        if (window.CapacitorPlugins && window.CapacitorPlugins.QRScanner) {
+          window.CapacitorPlugins.QRScanner.stopQRScan();
+        }
       } else {
         // Stop web scanner
         if (this.scanner && this.isScanning) {
@@ -177,9 +202,9 @@ export class QRScannerComponent {
       }
       
       this.isScanning = false;
-      console.log('Scanner stopped');
+      console.log('QR scanner stopped');
     } catch (error) {
-      console.error('Error stopping scanner:', error);
+      console.error('Error stopping QR scanner:', error);
     }
   }
 
