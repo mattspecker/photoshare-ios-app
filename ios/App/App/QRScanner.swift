@@ -222,6 +222,138 @@ class QRScannerViewController: UIViewController {
             instructionLabel.widthAnchor.constraint(equalToConstant: 200),
             instructionLabel.heightAnchor.constraint(equalToConstant: 40)
         ])
+        
+        // Add QR code scanning frame/viewfinder
+        setupScanningFrame()
+    }
+    
+    private func setupScanningFrame() {
+        // Create main scanning frame container
+        let frameContainer = UIView()
+        frameContainer.backgroundColor = UIColor.clear
+        frameContainer.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(frameContainer)
+        
+        // Frame dimensions (square QR scanning area)
+        let frameSize: CGFloat = 250
+        
+        NSLayoutConstraint.activate([
+            frameContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            frameContainer.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -20),
+            frameContainer.widthAnchor.constraint(equalToConstant: frameSize),
+            frameContainer.heightAnchor.constraint(equalToConstant: frameSize)
+        ])
+        
+        // Create corner indicators
+        let cornerLength: CGFloat = 25
+        let cornerWidth: CGFloat = 4
+        let cornerColor = UIColor.systemGreen
+        
+        // Top-left corner
+        let topLeftVertical = createCornerLine(width: cornerWidth, height: cornerLength)
+        topLeftVertical.backgroundColor = cornerColor
+        frameContainer.addSubview(topLeftVertical)
+        
+        let topLeftHorizontal = createCornerLine(width: cornerLength, height: cornerWidth)
+        topLeftHorizontal.backgroundColor = cornerColor
+        frameContainer.addSubview(topLeftHorizontal)
+        
+        NSLayoutConstraint.activate([
+            topLeftVertical.topAnchor.constraint(equalTo: frameContainer.topAnchor),
+            topLeftVertical.leadingAnchor.constraint(equalTo: frameContainer.leadingAnchor),
+            topLeftHorizontal.topAnchor.constraint(equalTo: frameContainer.topAnchor),
+            topLeftHorizontal.leadingAnchor.constraint(equalTo: frameContainer.leadingAnchor)
+        ])
+        
+        // Top-right corner
+        let topRightVertical = createCornerLine(width: cornerWidth, height: cornerLength)
+        topRightVertical.backgroundColor = cornerColor
+        frameContainer.addSubview(topRightVertical)
+        
+        let topRightHorizontal = createCornerLine(width: cornerLength, height: cornerWidth)
+        topRightHorizontal.backgroundColor = cornerColor
+        frameContainer.addSubview(topRightHorizontal)
+        
+        NSLayoutConstraint.activate([
+            topRightVertical.topAnchor.constraint(equalTo: frameContainer.topAnchor),
+            topRightVertical.trailingAnchor.constraint(equalTo: frameContainer.trailingAnchor),
+            topRightHorizontal.topAnchor.constraint(equalTo: frameContainer.topAnchor),
+            topRightHorizontal.trailingAnchor.constraint(equalTo: frameContainer.trailingAnchor)
+        ])
+        
+        // Bottom-left corner
+        let bottomLeftVertical = createCornerLine(width: cornerWidth, height: cornerLength)
+        bottomLeftVertical.backgroundColor = cornerColor
+        frameContainer.addSubview(bottomLeftVertical)
+        
+        let bottomLeftHorizontal = createCornerLine(width: cornerLength, height: cornerWidth)
+        bottomLeftHorizontal.backgroundColor = cornerColor
+        frameContainer.addSubview(bottomLeftHorizontal)
+        
+        NSLayoutConstraint.activate([
+            bottomLeftVertical.bottomAnchor.constraint(equalTo: frameContainer.bottomAnchor),
+            bottomLeftVertical.leadingAnchor.constraint(equalTo: frameContainer.leadingAnchor),
+            bottomLeftHorizontal.bottomAnchor.constraint(equalTo: frameContainer.bottomAnchor),
+            bottomLeftHorizontal.leadingAnchor.constraint(equalTo: frameContainer.leadingAnchor)
+        ])
+        
+        // Bottom-right corner
+        let bottomRightVertical = createCornerLine(width: cornerWidth, height: cornerLength)
+        bottomRightVertical.backgroundColor = cornerColor
+        frameContainer.addSubview(bottomRightVertical)
+        
+        let bottomRightHorizontal = createCornerLine(width: cornerLength, height: cornerWidth)
+        bottomRightHorizontal.backgroundColor = cornerColor
+        frameContainer.addSubview(bottomRightHorizontal)
+        
+        NSLayoutConstraint.activate([
+            bottomRightVertical.bottomAnchor.constraint(equalTo: frameContainer.bottomAnchor),
+            bottomRightVertical.trailingAnchor.constraint(equalTo: frameContainer.trailingAnchor),
+            bottomRightHorizontal.bottomAnchor.constraint(equalTo: frameContainer.bottomAnchor),
+            bottomRightHorizontal.trailingAnchor.constraint(equalTo: frameContainer.trailingAnchor)
+        ])
+        
+        // Add subtle center dot
+        let centerDot = UIView()
+        centerDot.backgroundColor = cornerColor.withAlphaComponent(0.8)
+        centerDot.layer.cornerRadius = 3
+        centerDot.translatesAutoresizingMaskIntoConstraints = false
+        frameContainer.addSubview(centerDot)
+        
+        NSLayoutConstraint.activate([
+            centerDot.centerXAnchor.constraint(equalTo: frameContainer.centerXAnchor),
+            centerDot.centerYAnchor.constraint(equalTo: frameContainer.centerYAnchor),
+            centerDot.widthAnchor.constraint(equalToConstant: 6),
+            centerDot.heightAnchor.constraint(equalToConstant: 6)
+        ])
+        
+        // Add subtle pulsing animation to the frame
+        addPulsingAnimation(to: frameContainer)
+    }
+    
+    private func createCornerLine(width: CGFloat, height: CGFloat) -> UIView {
+        let line = UIView()
+        line.layer.cornerRadius = 2
+        line.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            line.widthAnchor.constraint(equalToConstant: width),
+            line.heightAnchor.constraint(equalToConstant: height)
+        ])
+        
+        return line
+    }
+    
+    private func addPulsingAnimation(to view: UIView) {
+        let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+        pulseAnimation.fromValue = 0.6
+        pulseAnimation.toValue = 1.0
+        pulseAnimation.duration = 1.5
+        pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pulseAnimation.autoreverses = true
+        pulseAnimation.repeatCount = .infinity
+        
+        view.layer.add(pulseAnimation, forKey: "pulseAnimation")
     }
     
     @objc private func cancelTapped() {
