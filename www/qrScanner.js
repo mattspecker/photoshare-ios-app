@@ -48,9 +48,10 @@ export class QRScannerComponent {
       showToast('Starting QR code scanner...', 'info');
       
       // Use the native QR scanner plugin
-      if (window.CapacitorPlugins && window.CapacitorPlugins.QRScanner) {
+      const QRScannerPlugin = window.Capacitor?.Plugins?.QRScanner || window.CapacitorPlugins?.QRScanner;
+      if (QRScannerPlugin) {
         try {
-          const result = await window.CapacitorPlugins.QRScanner.scanQRCode();
+          const result = await QRScannerPlugin.scanQRCode();
           
           if (result && result.value) {
             this.handleScanResult(result.value);
@@ -70,7 +71,8 @@ export class QRScannerComponent {
         }
       } else {
         console.error('QRScanner plugin not available');
-        console.log('Available plugins:', Object.keys(window.CapacitorPlugins || {}));
+        console.log('Available Capacitor.Plugins:', Object.keys(window.Capacitor?.Plugins || {}));
+        console.log('Available CapacitorPlugins:', Object.keys(window.CapacitorPlugins || {}));
         showToast('QR Scanner plugin not found. Please rebuild the app.', 'error');
         return false;
       }
@@ -183,8 +185,9 @@ export class QRScannerComponent {
     try {
       if (Capacitor.isNativePlatform()) {
         // Stop native QR scanner
-        if (window.CapacitorPlugins && window.CapacitorPlugins.QRScanner) {
-          window.CapacitorPlugins.QRScanner.stopQRScan();
+        const QRScannerPlugin = window.Capacitor?.Plugins?.QRScanner || window.CapacitorPlugins?.QRScanner;
+        if (QRScannerPlugin) {
+          QRScannerPlugin.stopQRScan();
         }
       } else {
         // Stop web scanner

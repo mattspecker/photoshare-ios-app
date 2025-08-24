@@ -25,6 +25,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = EventPhotoPicker.self
         _ = UploadManager.self
         _ = PhotoLibraryMonitor.self
+        _ = QRScanner.self
         print("✅ Custom plugin classes loaded for packageClassList discovery")
         
         // Debug Firebase configuration

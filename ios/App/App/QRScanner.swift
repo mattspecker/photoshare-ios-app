@@ -6,8 +6,23 @@ import AVFoundation
  * QRScanner plugin for scanning QR codes using native iOS camera
  */
 @objc(QRScanner)
-public class QRScanner: CAPPlugin {
+public class QRScanner: CAPPlugin, CAPBridgedPlugin {
+    // Required properties for CAPBridgedPlugin
+    public let identifier = "QRScanner"
+    public let jsName = "QRScanner"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "scanQRCode", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopQRScan", returnType: CAPPluginReturnPromise)
+    ]
+    
     private var scannerViewController: QRScannerViewController?
+    
+    override public func load() {
+        super.load()
+        print("🎯 QRScanner plugin loaded successfully!")
+        print("🎯 Plugin ID: \(self.pluginId)")
+        print("🎯 Plugin available methods: scanQRCode, stopQRScan")
+    }
     
     @objc func scanQRCode(_ call: CAPPluginCall) {
         print("🔍 QRScanner: scanQRCode called")
