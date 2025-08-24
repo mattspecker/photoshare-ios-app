@@ -14,7 +14,6 @@
   "description": "",
   "dependencies": {
     "@capacitor-community/apple-sign-in": "^7.0.1",
-    "@capacitor-community/barcode-scanner": "^4.0.1",
     "@capacitor-community/date-picker": "^7.0.0",
     "@capacitor-community/photoviewer": "^7.0.0",
     "@capacitor-firebase/app": "^7.3.0",
