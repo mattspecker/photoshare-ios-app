@@ -10,6 +10,8 @@ export class QRScannerComponent {
     this.videoElement = null;
     this.onScanResult = null;
     this.onError = null;
+    this.hasStoppedNative = false; // Track if native scanner has been stopped
+    this.scanResultReceived = false; // Track if we got a scan result
   }
 
   async startScanning(videoElement, onResult, onError) {
@@ -45,24 +47,35 @@ export class QRScannerComponent {
 
   async startNativeScanning() {
     try {
+      console.log('🔍 Starting native iOS QR scanner...');
       showToast('Starting QR code scanner...', 'info');
+      
+      // Reset state flags
+      this.hasStoppedNative = false;
+      this.scanResultReceived = false;
+      this.isScanning = true;
       
       // Use the native QR scanner plugin
       const QRScannerPlugin = window.Capacitor?.Plugins?.QRScanner || window.CapacitorPlugins?.QRScanner;
       if (QRScannerPlugin) {
         try {
+          console.log('🔍 Calling native scanQRCode...');
           const result = await QRScannerPlugin.scanQRCode();
           
           if (result && result.value) {
+            console.log('✅ QR scan result received:', result.value);
+            this.scanResultReceived = true;
             this.handleScanResult(result.value);
             return true;
           } else {
+            console.log('ℹ️ No QR code detected');
             showToast('No QR code detected', 'info');
             return false;
           }
         } catch (scanError) {
-          console.error('QR scanner error:', scanError);
+          console.error('❌ QR scanner error:', scanError);
           if (scanError.message && scanError.message.includes('cancelled')) {
+            console.log('ℹ️ QR scan was cancelled by user');
             showToast('QR scanning cancelled', 'info');
           } else {
             showToast('QR scanning error: ' + scanError.message, 'error');
@@ -70,20 +83,23 @@ export class QRScannerComponent {
           return false;
         }
       } else {
-        console.error('QRScanner plugin not available');
+        console.error('❌ QRScanner plugin not available');
         console.log('Available Capacitor.Plugins:', Object.keys(window.Capacitor?.Plugins || {}));
         console.log('Available CapacitorPlugins:', Object.keys(window.CapacitorPlugins || {}));
         showToast('QR Scanner plugin not found. Please rebuild the app.', 'error');
         return false;
       }
     } catch (error) {
-      console.error('QR scanner error:', error);
+      console.error('❌ QR scanner error:', error);
       if (error.message && error.message.includes('cancelled')) {
+        console.log('ℹ️ Scanner was cancelled');
         showToast('Scanner cancelled', 'info');
       } else {
         showToast('Scanner error: ' + error.message, 'error');
       }
       throw error;
+    } finally {
+      this.isScanning = false;
     }
   }
 
@@ -170,27 +186,52 @@ export class QRScannerComponent {
       return;
     }
 
-    console.log('QR Code scanned:', data);
+    console.log('✅ QR Code scanned successfully:', data);
     showToast('QR Code scanned successfully!', 'success');
+    
+    this.scanResultReceived = true;
     
     if (this.onScanResult) {
       this.onScanResult(data);
     }
     
-    // Stop scanning after successful scan
-    this.stopScanning();
+    // Only stop scanning manually for web platform
+    // Native platform should stop automatically after getting result
+    if (!Capacitor.isNativePlatform()) {
+      console.log('🔍 Web: Stopping QR scanner after result');
+      this.stopScanning();
+    } else {
+      console.log('🔍 Native: QR scanner should stop automatically after result');
+      // Mark as stopped to prevent duplicate stop calls
+      this.hasStoppedNative = true;
+    }
   }
 
   stopScanning() {
     try {
       if (Capacitor.isNativePlatform()) {
-        // Stop native QR scanner
+        // Check if we already stopped or got a result
+        if (this.hasStoppedNative) {
+          console.log('🔍 Native: QR scanner already stopped, skipping duplicate stop');
+          return;
+        }
+        
+        if (this.scanResultReceived) {
+          console.log('🔍 Native: QR scanner already received result, should have stopped automatically');
+          this.hasStoppedNative = true;
+          return;
+        }
+        
+        // Stop native QR scanner only if we haven't stopped yet
+        console.log('🔍 Native: Manually stopping QR scanner...');
         const QRScannerPlugin = window.Capacitor?.Plugins?.QRScanner || window.CapacitorPlugins?.QRScanner;
         if (QRScannerPlugin) {
           QRScannerPlugin.stopQRScan();
+          this.hasStoppedNative = true;
         }
       } else {
         // Stop web scanner
+        console.log('🔍 Web: Stopping QR scanner...');
         if (this.scanner && this.isScanning) {
           this.scanner.stop();
           this.scanner.destroy();
@@ -205,9 +246,9 @@ export class QRScannerComponent {
       }
       
       this.isScanning = false;
-      console.log('QR scanner stopped');
+      console.log('✅ QR scanner stopped successfully');
     } catch (error) {
-      console.error('Error stopping QR scanner:', error);
+      console.error('❌ Error stopping QR scanner:', error);
     }
   }
 

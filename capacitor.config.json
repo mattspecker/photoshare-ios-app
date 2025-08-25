@@ -22,6 +22,12 @@
       "backgroundColor": "#ffffff",
       "overlaysWebView": false
     },
+    "FirebaseMessaging": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
     "EventPhotoPicker": {},
     "UploadManager": {},
     "PhotoLibraryMonitor": {},
