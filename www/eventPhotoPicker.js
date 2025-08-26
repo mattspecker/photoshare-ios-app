@@ -135,6 +135,21 @@ class EventPhotoPickerIntegration {
             return await this.plugin.openEventPhotoPicker(options);
         } catch (error) {
             console.error('❌ openPhotoPicker failed:', error);
+            
+            // Check if this is a permission error
+            const errorMessage = error.message || error.errorMessage || '';
+            if (errorMessage.includes('Photo library permission required') || 
+                errorMessage.includes('enable in Settings') ||
+                errorMessage.includes('Privacy') ||
+                errorMessage.includes('Photos')) {
+                
+                console.log('📸 Detected photo permission error - showing settings dialog');
+                await this.showPermissionSettingsDialog();
+                
+                // Return a cancelled result instead of throwing
+                return { cancelled: true, reason: 'Photo permissions required' };
+            }
+            
             throw error;
         }
     }
@@ -183,6 +198,13 @@ class EventPhotoPickerIntegration {
     
     async testOpenPhotoPicker() {
         console.log('🧪 Testing openPhotoPicker...');
+        
+        // Check photo permissions first
+        const hasPermission = await this.checkPhotoPermissions();
+        if (!hasPermission) {
+            console.log('❌ Photo permissions not granted, picker test cancelled');
+            return { error: 'Photo permissions not granted' };
+        }
         
         const options = {
             eventName: 'Test Event Photos',
@@ -261,8 +283,138 @@ class EventPhotoPickerIntegration {
         });
     }
     
+    async checkPhotoPermissions() {
+        console.log('📸 Checking photo/video permissions...');
+        
+        if (!this.isReady) {
+            console.error('❌ EventPhotoPicker not ready for permission check');
+            return false;
+        }
+        
+        try {
+            // Use Capacitor Camera plugin to check permissions
+            const Camera = window.Capacitor?.Plugins?.Camera;
+            if (!Camera) {
+                console.error('❌ Camera plugin not available for permission check');
+                return false;
+            }
+            
+            // Check current permission status
+            const status = await Camera.checkPermissions();
+            console.log('📸 Current photo permissions:', status);
+            
+            // Handle different permission states
+            if (status.photos === 'granted') {
+                console.log('✅ Photo permissions already granted');
+                return true;
+            } else if (status.photos === 'prompt') {
+                console.log('🔔 Requesting photo permissions from user...');
+                
+                // Request permissions - this will show the system dialog
+                const result = await Camera.requestPermissions({ permissions: ['photos'] });
+                console.log('📸 Permission request result:', result);
+                
+                if (result.photos === 'granted') {
+                    console.log('✅ Photo permissions granted by user');
+                    return true;
+                } else {
+                    console.log('❌ Photo permissions denied by user');
+                    return false;
+                }
+            } else if (status.photos === 'denied') {
+                console.log('⚠️ Photo permissions denied - redirecting to settings');
+                
+                // Take user to app settings
+                await this.showPermissionSettingsDialog();
+                return false;
+            } else if (status.photos === 'limited') {
+                console.log('⚠️ Photo permissions limited - redirecting to settings');
+                
+                // Take user to app settings for limited access
+                await this.showPermissionSettingsDialog();
+                return false;
+            } else {
+                console.log('❌ Unknown photo permission status:', status.photos);
+                return false;
+            }
+            
+        } catch (error) {
+            console.error('❌ Error checking photo permissions:', error);
+            return false;
+        }
+    }
+    
+    async showPermissionSettingsDialog() {
+        console.log('⚙️ Showing permission settings dialog...');
+        
+        // Show native dialog to take user to settings
+        const title = 'Photo Access Required';
+        const message = 'Photo access is required to select event photos. Please go to Settings > Privacy & Security > Photos and enable "All Photos" access for this app.';
+        
+        try {
+            const Dialog = window.Capacitor?.Plugins?.Dialog;
+            if (Dialog) {
+                console.log('📱 Showing native dialog for photo permissions');
+                const result = await Dialog.confirm({
+                    title: title,
+                    message: message,
+                    okButtonTitle: 'Open Settings',
+                    cancelButtonTitle: 'Cancel'
+                });
+                
+                console.log('📱 Dialog result:', result);
+                
+                if (result.value) {
+                    // Open app settings
+                    console.log('📱 User chose to open settings');
+                    const App = window.Capacitor?.Plugins?.App;
+                    if (App) {
+                        try {
+                            await App.openUrl({ url: 'app-settings:' });
+                            console.log('✅ Successfully opened app settings');
+                        } catch (settingsError) {
+                            console.error('❌ Failed to open settings:', settingsError);
+                            // Fallback: show message about manual settings
+                            alert('Please manually go to Settings > Privacy & Security > Photos and enable access for this app.');
+                        }
+                    } else {
+                        console.error('❌ App plugin not available');
+                        alert('Please manually go to Settings > Privacy & Security > Photos and enable access for this app.');
+                    }
+                } else {
+                    console.log('📱 User cancelled settings dialog');
+                }
+            } else {
+                // Fallback to browser alert
+                console.log('📱 Using fallback browser confirm dialog');
+                const openSettings = confirm(`${title}\n\n${message}\n\nOpen Settings?`);
+                if (openSettings) {
+                    // Try to open settings URL
+                    try {
+                        window.open('app-settings:', '_system');
+                        console.log('✅ Attempted to open settings via window.open');
+                    } catch (error) {
+                        console.error('❌ Failed to open settings via window.open:', error);
+                        alert('Please manually go to Settings > Privacy & Security > Photos and enable access for this app.');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error showing permission dialog:', error);
+            // Simple fallback
+            alert(`${title}\n\n${message}\n\nPlease manually go to Settings > Privacy & Security > Photos and enable access for this app.`);
+        }
+    }
+    
     async handleUploadClick() {
         try {
+            // Check photo permissions first
+            const hasPermission = await this.checkPhotoPermissions();
+            if (!hasPermission) {
+                console.log('❌ Photo permissions not granted, picker cancelled');
+                return;
+            }
+            
             // Get current event data from page
             const eventData = this.extractEventData();
             

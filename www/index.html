@@ -213,13 +213,13 @@
         }
     };
 
-    // Test FCM extension
+    // Test FCM integration
     window.testFCMExtension = function() {
-      console.log('🧪 Testing FCM Extension...');
+      console.log('🧪 Testing FCM Integration...');
       
-      console.log('🔍 Checking FCM extension availability:');
-      console.log('- window.FCMPushNotifications exists:', !!window.FCMPushNotifications);
-      console.log('- window.Capacitor.Plugins.PushNotifications exists:', !!window.Capacitor?.Plugins?.PushNotifications);
+      console.log('🔍 Checking FCM integration availability:');
+      console.log('- window.FCMApp exists:', !!window.FCMApp);
+      console.log('- FCM status:', window.FCMApp?.getStatus?.());
       console.log('- initializeFCM method exists:', !!window.Capacitor?.Plugins?.PushNotifications?.initializeFCM);
       
       if (window.Capacitor?.Plugins?.PushNotifications?.initializeFCM) {
