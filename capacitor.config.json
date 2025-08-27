@@ -57,6 +57,7 @@
     "EventPhotoPicker",
     "UploadManager",
     "PhotoLibraryMonitor",
-    "QRScanner"
+    "QRScanner",
+    "AppPermissionPlugin"
   ]
 }

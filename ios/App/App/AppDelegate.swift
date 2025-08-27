@@ -26,6 +26,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = UploadManager.self
         _ = PhotoLibraryMonitor.self
         _ = QRScanner.self
+        // _ = AppPermissionPlugin.self  // TODO: Add to Xcode project
         print("✅ Custom plugin classes loaded for packageClassList discovery")
         
         // Debug Firebase configuration
