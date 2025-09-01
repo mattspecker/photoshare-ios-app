@@ -66,6 +66,8 @@
 	<string>PhotoShare needs permission to save photos to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>PhotoShare needs photo library access to select and share photos.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>PhotoShare needs notification permissions to send you updates about events and photo sharing activities.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>UIBackgroundModes</key>

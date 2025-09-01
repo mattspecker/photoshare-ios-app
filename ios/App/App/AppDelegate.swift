@@ -17,6 +17,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Override point for customization after application launch.
         FirebaseApp.configure()
         
+        // WebView configuration no longer needed for standard Camera plugin
+        
         // Debug plugin registration
         print("🔍 AppDelegate: App launching with custom plugins")
         
@@ -26,7 +28,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = UploadManager.self
         _ = PhotoLibraryMonitor.self
         _ = QRScanner.self
-        // _ = AppPermissionPlugin.self  // TODO: Add to Xcode project
+        _ = AppPermissionPlugin.self
         print("✅ Custom plugin classes loaded for packageClassList discovery")
         
         // Debug Firebase configuration
@@ -64,6 +66,41 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         return true
     }
+    
+    // MARK: - WebView Transparency (No longer needed for standard Camera plugin)
+    /*
+    private func configureWebViewTransparency() {
+        print("📷 Configuring WebView transparency for CameraPreview...")
+        
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first,
+              let bridgeVC = window.rootViewController as? CAPBridgeViewController,
+              let webView = bridgeVC.webView else {
+            print("❌ WebView not available for transparency configuration")
+            return
+        }
+        
+        // Configure WebView for camera preview with proper scroll handling
+        webView.backgroundColor = UIColor.clear
+        webView.isOpaque = false
+        webView.scrollView.backgroundColor = UIColor.clear
+        webView.scrollView.isOpaque = false
+        
+        // Ensure scrolling remains enabled and responsive
+        webView.scrollView.isScrollEnabled = true
+        webView.scrollView.bounces = true
+        webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.delaysContentTouches = false
+        webView.scrollView.canCancelContentTouches = true
+        
+        print("✅ WebView configured: transparency + scroll enabled")
+        
+        // Make window background clear
+        window.backgroundColor = UIColor.clear
+        
+        print("✅ WebView transparency configured for CameraPreview")
+    }
+    */
     
     // MARK: - JWT Token Management for Native Plugins
     private var currentJwtToken: String?

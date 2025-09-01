@@ -14,9 +14,6 @@
       "skipNativeAuth": false,
       "providers": ["google.com"]
     },
-    "Camera": {
-      "permissions": ["camera", "photos"]
-    },
     "StatusBar": {
       "style": "DEFAULT",
       "backgroundColor": "#ffffff",
@@ -28,32 +25,38 @@
     "PushNotifications": {
       "presentationOptions": ["badge", "sound", "alert"]
     },
+    "Camera": {},
     "EventPhotoPicker": {},
     "UploadManager": {},
     "PhotoLibraryMonitor": {},
-    "QRScanner": {}
+    "QRScanner": {},
+    "AppPermissionPlugin": {}
   },
   "ios": {
     "scheme": "App",
     "contentInset": "automatic",
-    "backgroundColor": "#ffffff",
-    "handleApplicationNotifications": false
+    "backgroundColor": "#00000000",
+    "handleApplicationNotifications": false,
+    "scrollEnabled": true,
+    "bounces": true
   },
   "packageClassList": [
     "SignInWithApple",
+    "CameraPreview",
     "DatePickerPlugin",
     "PhotoViewerPlugin",
     "FirebaseAppPlugin",
     "FirebaseAuthenticationPlugin",
+    "FirebaseMessagingPlugin",
     "AppPlugin",
-    "CAPCameraPlugin",
     "DevicePlugin",
+    "DialogPlugin",
     "FilesystemPlugin",
     "HapticsPlugin",
     "KeyboardPlugin",
     "PreferencesPlugin",
+    "PushNotificationsPlugin",
     "StatusBarPlugin",
-    "DialogPlugin",
     "EventPhotoPicker",
     "UploadManager",
     "PhotoLibraryMonitor",

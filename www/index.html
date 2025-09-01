@@ -117,6 +117,9 @@
   <!-- App Permissions Plugin for Onboarding -->
   <script src="./appPermissionPlugin.js"></script>
   
+  <!-- Custom Camera Integration -->
+  <!-- CustomCameraPlugin directly overrides Camera plugin - no JS integration needed -->
+  
   <!-- App Initialization -->
   <script>
     let isNativeApp = false;
@@ -215,6 +218,166 @@
         }
     };
 
+    // Test CameraPreview (our only camera plugin)
+    window.testCameraPreview = async function() {
+        console.log('🧪 ==================== TESTING CAMERA PREVIEW ====================');
+        console.log('🧪 Available plugins:', Object.keys(window.Capacitor?.Plugins || {}));
+        
+        if (window.Capacitor?.Plugins?.CameraPreview) {
+            try {
+                console.log('📷 CameraPreview plugin available');
+                console.log('📷 CameraPreview methods:', Object.keys(window.Capacitor.Plugins.CameraPreview));
+                
+                return { 
+                    available: true, 
+                    methods: Object.keys(window.Capacitor.Plugins.CameraPreview) 
+                };
+            } catch (error) {
+                console.error('❌ CameraPreview test failed:', error);
+                return { error: error.message };
+            }
+        } else {
+            console.log('❌ CameraPreview plugin not available');
+            return { error: 'CameraPreview plugin not available' };
+        }
+    };
+    
+    // Test CameraPreview plugin availability
+    window.testCameraPreviewPlugin = async function() {
+        console.log('🧪 ==================== TESTING CAMERA PREVIEW PLUGIN ====================');
+        console.log('🧪 Available plugins:', Object.keys(window.Capacitor?.Plugins || {}));
+        
+        if (window.Capacitor?.Plugins?.CameraPreview) {
+            console.log('✅ CameraPreview plugin available');
+            console.log('📷 CameraPreview methods:', Object.keys(window.Capacitor.Plugins.CameraPreview));
+            return { available: true, methods: Object.keys(window.Capacitor.Plugins.CameraPreview) };
+        } else {
+            console.log('❌ CameraPreview plugin not available');
+            return { available: false };
+        }
+    };
+
+    // Critical iOS/Android Requirements Test
+    window.testCriticalNativeRequirements = function() {
+        console.log('🚨 ==================== CRITICAL NATIVE REQUIREMENTS TEST ====================');
+        
+        // 1. Capacitor.isNativePlatform() MUST return true
+        const isNative = window.Capacitor?.isNativePlatform?.();
+        console.log('🔍 Capacitor.isNativePlatform():', isNative);
+        
+        if (isNative === true) {
+            console.log('✅ CRITICAL: Capacitor.isNativePlatform() returns true - iOS native app detected');
+        } else {
+            console.log('❌ CRITICAL: Capacitor.isNativePlatform() returns false - this will cause web fallback!');
+            console.log('❌ This means useCameraPicture hook will fall back to web file picker instead of native camera');
+        }
+        
+        // 2. Check if we're in native iOS environment
+        const platform = window.Capacitor?.getPlatform?.();
+        console.log('📱 Platform detected:', platform);
+        
+        if (platform === 'ios') {
+            console.log('✅ iOS platform detected correctly');
+        } else {
+            console.log('⚠️ Platform not detected as iOS:', platform);
+        }
+        
+        // 3. Verify Camera plugin is our custom implementation
+        const cameraPlugin = window.Capacitor?.Plugins?.Camera;
+        console.log('📷 Camera plugin available:', !!cameraPlugin);
+        console.log('📷 Camera plugin methods:', Object.keys(cameraPlugin || {}));
+        
+        // 4. Check critical methods for useCameraPicture hook
+        const hasGetPhoto = cameraPlugin?.getPhoto;
+        const hasTakePicture = cameraPlugin?.takePicture;
+        const hasCheckPermissions = cameraPlugin?.checkPermissions;
+        
+        console.log('📷 getPhoto method:', !!hasGetPhoto);
+        console.log('📷 takePicture method:', !!hasTakePicture);
+        console.log('📷 checkPermissions method:', !!hasCheckPermissions);
+        
+        return {
+            isNativePlatform: isNative,
+            platform: platform,
+            cameraPluginAvailable: !!cameraPlugin,
+            criticalMethodsAvailable: {
+                getPhoto: !!hasGetPhoto,
+                takePicture: !!hasTakePicture,
+                checkPermissions: !!hasCheckPermissions
+            },
+            passesRequirements: isNative === true && platform === 'ios' && !!cameraPlugin
+        };
+    };
+
+    // Test useCameraPicture hook interface
+    window.testUseCameraPictureHook = async function() {
+        console.log('🧪 ==================== TESTING useCameraPicture HOOK ====================');
+        console.log('🧪 Testing dedicated camera picture-taking hook');
+        console.log('🧪 Camera-only (CameraSource.Camera) - no gallery selection');
+        
+        // First verify critical requirements
+        const requirements = window.testCriticalNativeRequirements();
+        if (!requirements.passesRequirements) {
+            console.log('❌ CRITICAL: Failed native platform requirements - useCameraPicture will not work correctly!');
+            return { error: 'Failed critical native requirements', requirements };
+        }
+        
+        console.log('✅ CRITICAL: All native platform requirements passed');
+        
+        if (window.Capacitor?.Plugins?.Camera?.takePicture) {
+            try {
+                console.log('📷 Calling Camera.takePicture() for useCameraPicture hook...');
+                console.log('📷 CRITICAL: This MUST use native camera (never web file picker)');
+                console.log('📷 CRITICAL: Takes NEW pictures only (never gallery selection)');
+                console.log('📷 Expected: 90% JPEG, File object ready for immediate upload');
+                
+                const result = await window.Capacitor.Plugins.Camera.takePicture({
+                    quality: 90,
+                    resultType: 'dataUrl',
+                    source: 'camera',  // CRITICAL: CameraSource.Camera only
+                    correctOrientation: true
+                });
+                
+                console.log('✅ useCameraPicture result:', result);
+                
+                // Verify critical useCameraPicture requirements
+                const validations = {
+                    hasDataUrl: result.dataUrl && result.dataUrl.length > 0,
+                    isJpegFormat: result.dataUrl && result.dataUrl.startsWith('data:image/jpeg'),
+                    hasCorrectFormat: result.format === 'jpeg',
+                    readyForUpload: result.dataUrl && result.dataUrl.includes('base64')
+                };
+                
+                console.log('🔍 CRITICAL VALIDATIONS:');
+                Object.entries(validations).forEach(([key, passed]) => {
+                    console.log(`${passed ? '✅' : '❌'} ${key}:`, passed);
+                });
+                
+                if (validations.isJpegFormat && validations.readyForUpload) {
+                    console.log('✅ CRITICAL: File object is ready for immediate upload/processing');
+                } else {
+                    console.log('❌ CRITICAL: File object NOT ready for immediate upload/processing');
+                }
+                
+                return { 
+                    ...result, 
+                    validations,
+                    criticalRequirementsPassed: Object.values(validations).every(v => v)
+                };
+            } catch (error) {
+                console.error('❌ useCameraPicture failed:', error);
+                if (error.message?.includes('User cancelled')) {
+                    console.log('ℹ️ User cancellation is handled gracefully (no error toast expected)');
+                }
+                return { error: error.message };
+            }
+        } else {
+            console.log('❌ Camera.takePicture() not available');
+            console.log('Available Camera methods:', Object.keys(window.Capacitor?.Plugins?.Camera || {}));
+            return { error: 'takePicture method not available' };
+        }
+    };
+
     // Test FCM integration
     window.testFCMExtension = function() {
       console.log('🧪 Testing FCM Integration...');
@@ -242,6 +405,7 @@
       testPhotoPicker: () => window.testPhotoPicker?.(),
       testSimplePlugin: () => window.testSimplePlugin?.(),
       testFCMExtension: () => window.testFCMExtension?.(),
+      testCustomCameraOverride: () => window.testCustomCameraOverride?.(),
       listPlugins: () => {
         console.log('📋 Available Capacitor plugins:');
         console.log(Object.keys(window.Capacitor?.Plugins || {}));
