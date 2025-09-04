@@ -205,6 +205,10 @@ class EventPhotoPickerIntegration {
     
     // Camera Override for Photo-Share.app Integration
     setupCameraOverride() {
+        console.log('⚠️ Camera override DISABLED - CustomCameraPlugin handles direct camera flow');
+        console.log('🎥 All camera buttons will use native Camera → PhotoEditor integration');
+        return; // Early return - disable camera override
+        
         if (!window.location.href.includes('photo-share.app')) {
             return;
         }

@@ -108,7 +108,7 @@ console.log('📱 Manual Photo Upload system loading...');
                 const photo = await Capacitor.Plugins.Camera.getPhoto({
                     quality: 90,
                     allowEditing: false,
-                    resultType: CameraResultType.Base64,
+                    resultType: CameraResultType.Uri, // Use Uri instead of Base64 to avoid IndexedDB limits
                     source: CameraSource.Photos
                 });
 

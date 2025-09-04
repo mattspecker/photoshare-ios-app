@@ -119,7 +119,7 @@ export class NativePhotoPickerService {
 
       const pickerOptions = {
         source: CameraSource.Photos,
-        resultType: CameraResultType.DataUrl,
+        resultType: CameraResultType.Uri, // Use Uri instead of DataUrl to avoid IndexedDB limits
         quality: this.config.quality,
         allowEditing: options.allowEditing || this.config.allowsEditing,
         correctOrientation: this.config.correctOrientation,
@@ -130,7 +130,7 @@ export class NativePhotoPickerService {
       // Open native photo picker
       const result = await Camera.getPhoto(pickerOptions);
       
-      if (result && result.dataUrl) {
+      if (result && (result.webPath || result.path)) {
         console.log('📸 Photo selected from native picker');
         
         // Process the selected photo
@@ -182,7 +182,7 @@ export class NativePhotoPickerService {
       const photoData = {
         id: `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         eventId: eventId,
-        dataUrl: cameraResult.dataUrl,
+        webPath: cameraResult.webPath || cameraResult.path,
         source: 'manual-picker',
         selectedAt: new Date(),
         
@@ -199,9 +199,12 @@ export class NativePhotoPickerService {
       console.log('📊 Extracting metadata from selected photo...');
       const extractedMetadata = await extractPhotoMetadata(photoData, 'camera');
 
-      // Calculate file size from base64
-      const base64Data = photoData.dataUrl.split(',')[1];
-      const fileSize = Math.round((base64Data.length * 3) / 4);
+      // Try to get file size from metadata extraction, fallback to estimate
+      let fileSize = extractedMetadata.basic?.fileSize || 0;
+      if (!fileSize && photoData.webPath) {
+        // For now, we'll set a default size - the upload system will handle the actual file
+        fileSize = 2 * 1024 * 1024; // 2MB estimate
+      }
       
       // Create comprehensive photo object
       const processedPhoto = {

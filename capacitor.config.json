@@ -31,7 +31,9 @@
     "EventPhotoPicker": {},
     "UploadManager": {},
     "PhotoLibraryMonitor": {},
-    "QRScanner": {}
+    "QRScanner": {},
+    "AppPermissionPlugin": {},
+    "PhotoEditorPlugin": {}
   },
   "ios": {
     "scheme": "App",
@@ -57,6 +59,8 @@
     "EventPhotoPicker",
     "UploadManager",
     "PhotoLibraryMonitor",
-    "QRScanner"
+    "QRScanner",
+    "AppPermissionPlugin",
+    "PhotoEditorPlugin"
   ]
 }
