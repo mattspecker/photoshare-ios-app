@@ -2,6 +2,9 @@ import Foundation
 import Photos
 import Capacitor
 import UIKit
+import WebKit
+import UserNotifications
+import CryptoKit
 
 @objc(EventPhotoPicker)
 public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
@@ -15,6 +18,7 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
     ]
     private var currentPickerViewController: EventPhotoPickerViewController?
     private var currentJwtToken: String?
+    private var currentEventId: String?
     
     override public func load() {
         super.load()
@@ -33,6 +37,122 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
             object: self
         )
     }
+    
+    private func fetchUploadedPhotos(eventId: String, jwtToken: String, completion: @escaping ([[String: Any]]) -> Void) {
+        var allPhotos: [[String: Any]] = []
+        
+        func fetchPage(offset: Int) {
+            // Use get-uploaded-photos endpoint which has pagination support
+            guard let url = URL(string: "https://jgfcfdlfcnmaripgpepl.supabase.co/functions/v1/get-uploaded-photos") else {
+                print("❌ Invalid get-uploaded-photos URL")
+                completion([])
+                return
+            }
+            
+            // Build URL with pagination query parameters
+            var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            urlComponents?.queryItems = [
+                URLQueryItem(name: "event_id", value: eventId),
+                URLQueryItem(name: "limit", value: "50"), // Use max limit for efficiency
+                URLQueryItem(name: "offset", value: String(offset))
+            ]
+            
+            guard let finalURL = urlComponents?.url else {
+                print("❌ Failed to build URL with query parameters")
+                completion([])
+                return
+            }
+        
+        var request = URLRequest(url: finalURL)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(jwtToken)", forHTTPHeaderField: "Authorization")
+        
+        print("📡 Fetching uploaded photos for event: \(eventId)")
+        
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("❌ Error fetching uploaded photos page \(offset/50 + 1): \(error.localizedDescription)")
+                    completion([])
+                    return
+                }
+                
+                // Debug HTTP response
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("📡 get-uploaded-photos Response Status: \(httpResponse.statusCode)")
+                    if offset == 0 { // Only show headers for first request to reduce log noise
+                        print("📡 get-uploaded-photos Response Headers: \(httpResponse.allHeaderFields)")
+                    }
+                }
+                
+                guard let data = data else {
+                    print("❌ No data received from get-uploaded-photos page \(offset/50 + 1)")
+                    completion([])
+                    return
+                }
+                
+                // Debug raw response data (truncated for pagination)
+                if let responseString = String(data: data, encoding: .utf8) {
+                    let truncated = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
+                    print("📡 get-uploaded-photos Raw Response (page \(offset/50 + 1)): \(truncated)")
+                } else {
+                    print("❌ Could not decode response data as UTF-8")
+                }
+                
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        // Handle get-uploaded-photos API response format
+                        if let photos = json["photos"] as? [[String: Any]] {
+                            allPhotos.append(contentsOf: photos)
+                            
+                            // Check pagination info (has_more is directly in the response)
+                            if let hasMore = json["has_more"] as? Bool {
+                                
+                                print("📄 Page \(offset/50 + 1): Fetched \(photos.count) photos, has_more: \(hasMore)")
+                                
+                                if hasMore {
+                                    // Fetch next page
+                                    fetchPage(offset: offset + 50)
+                                } else {
+                                    // All pages fetched, return results
+                                    print("✅ Fetched total of \(allPhotos.count) uploaded photos with pagination")
+                                    
+                                    // Debug: Print first few photos for verification  
+                                    for (index, photo) in allPhotos.prefix(3).enumerated() {
+                                        print("📋 API Photo \(index): \(photo)")
+                                    }
+                                    
+                                    completion(allPhotos)
+                                }
+                            } else {
+                                // No pagination info, assume this is the only page
+                                print("✅ Fetched \(allPhotos.count) uploaded photos (no pagination info)")
+                                
+                                // Debug: Print first few photos for verification  
+                                for (index, photo) in allPhotos.prefix(3).enumerated() {
+                                    print("📋 API Photo \(index): \(photo)")
+                                }
+                                
+                                completion(allPhotos)
+                            }
+                        } else {
+                            print("❌ No 'photos' array found in API response")
+                            completion([])
+                        }
+                    } else {
+                        print("❌ Invalid JSON format in API response")
+                        completion([])
+                    }
+                } catch {
+                    print("❌ JSON parsing error: \(error.localizedDescription)")
+                    completion([])
+                }
+            }.resume()
+        }
+        
+        // Start fetching from first page
+        fetchPage(offset: 0)
+    }
+    
     
     @objc func openEventPhotoPicker(_ call: CAPPluginCall) {
         print("🚀 Opening event photo picker...")
@@ -69,6 +189,9 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
             call.reject("Missing required parameters: startDate/startTime, endDate/endTime, eventId")
             return
         }
+        
+        // Store current eventId for JavaScript upload service
+        self.currentEventId = eventId
         
         // Store JWT token in current instance for potential API calls
         self.currentJwtToken = jwtToken
@@ -310,23 +433,79 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         allowMultipleSelection: Bool,
         title: String
     ) {
-        DispatchQueue.main.async { [weak self] in
-            guard let bridge = self?.bridge,
-                  let viewController = bridge.viewController else {
-                call.reject("Unable to present photo picker")
+        print("🔍 DEBUG: presentPhotoPicker called with eventId: \(eventId)")
+        
+        // Check if we need to refresh the JWT token before proceeding
+        if !AppDelegate.isJwtTokenValid() {
+            print("🔄 JWT token invalid, refreshing synchronously...")
+            
+            AppDelegate.refreshJwtTokenIfNeeded { [weak self] freshToken in
+                guard let self = self else { return }
+                
+                if let token = freshToken {
+                    print("✅ Got fresh JWT token, proceeding with API call")
+                    self.proceedWithPhotoPicker(
+                        call: call, 
+                        startDate: startDate, 
+                        endDate: endDate, 
+                        eventId: eventId, 
+                        allowMultipleSelection: allowMultipleSelection, 
+                        title: title, 
+                        jwtToken: token
+                    )
+                } else {
+                    print("❌ Failed to get fresh JWT token")
+                    call.reject("Unable to refresh authentication token")
+                }
+            }
+        } else {
+            // Token is valid, use the stored one
+            guard let jwtToken = AppDelegate.getStoredJwtToken() else {
+                print("❌ No JWT token available")
+                call.reject("No JWT token available") 
                 return
             }
             
-            // Get JWT token for API calls
-            let jwtToken = AppDelegate.getStoredJwtToken()
-            let jwtData = AppDelegate.getStoredJwtData()
-            
-            let pickerVC = EventPhotoPickerViewController(
+            print("✅ JWT token is valid, proceeding immediately")
+            proceedWithPhotoPicker(
+                call: call,
                 startDate: startDate,
-                endDate: endDate,
+                endDate: endDate, 
                 eventId: eventId,
-                uploadedPhotoIds: Set(uploadedPhotoIds),
                 allowMultipleSelection: allowMultipleSelection,
+                title: title,
+                jwtToken: jwtToken
+            )
+        }
+    }
+    
+    private func proceedWithPhotoPicker(
+        call: CAPPluginCall,
+        startDate: Date,
+        endDate: Date, 
+        eventId: String,
+        allowMultipleSelection: Bool,
+        title: String,
+        jwtToken: String
+    ) {
+        // Fetch uploaded photos from API instead of using passed parameter
+        print("🔄 Fetching uploaded photos from API before opening picker...")
+        fetchUploadedPhotos(eventId: eventId, jwtToken: jwtToken) { [weak self] fetchedUploadedPhotos in
+            DispatchQueue.main.async {
+                guard let bridge = self?.bridge,
+                      let viewController = bridge.viewController else {
+                    call.reject("Unable to present photo picker")
+                    return
+                }
+                
+                let jwtData = AppDelegate.getStoredJwtData()
+                
+                let pickerVC = EventPhotoPickerViewController(
+                    startDate: startDate,
+                    endDate: endDate,
+                    eventId: eventId,
+                    uploadedPhotos: fetchedUploadedPhotos, // Use API result instead of parameter
+                    allowMultipleSelection: allowMultipleSelection,
                 title: title,
                 jwtToken: jwtToken,
                 jwtData: jwtData
@@ -345,6 +524,7 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
             
             self?.currentPickerViewController = pickerVC
             viewController.present(navController, animated: true)
+            }
         }
     }
     
@@ -400,10 +580,391 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         
         dispatchGroup.notify(queue: .main) {
             print("✅ Processed \(processedPhotos.count) photos for upload")
+            
+            // First resolve the call to indicate successful photo selection
             call.resolve([
                 "photos": processedPhotos,
                 "count": processedPhotos.count
             ])
+            
+            // Then start the JavaScript upload service in background
+            DispatchQueue.main.async {
+                self.startJavaScriptUpload(photos: selectedPhotos)
+            }
+        }
+    }
+    
+    // MARK: - JavaScript Upload Service Integration
+    
+    private func startJavaScriptUpload(photos: [EventPhoto]) {
+        print("🚀 Starting JavaScript upload service for \(photos.count) photos")
+        
+        guard let bridge = self.bridge,
+              let _ = bridge.webView else {
+            print("❌ No webView available for JavaScript upload call")
+            return
+        }
+        
+        // Convert photos to JavaScript-compatible format
+        var jsPhotos: [[String: Any]] = []
+        let dispatchGroup = DispatchGroup()
+        
+        for photo in photos {
+            dispatchGroup.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                var photoDict: [String: Any] = [
+                    "localIdentifier": photo.localIdentifier,
+                    "filename": "IMG_\(photo.localIdentifier.suffix(8)).jpg",
+                    "creationDate": photo.creationDate.timeIntervalSince1970
+                ]
+                
+                // Get the actual image file path
+                if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [photo.localIdentifier], options: nil).firstObject {
+                    let imageManager = PHImageManager.default()
+                    let options = PHImageRequestOptions()
+                    options.isSynchronous = true
+                    options.deliveryMode = .highQualityFormat
+                    options.isNetworkAccessAllowed = true
+                    
+                    imageManager.requestImage(for: asset, targetSize: PHImageManagerMaximumSize, contentMode: .aspectFill, options: options) { image, _ in
+                        if let image = image,
+                           let imageData = image.jpegData(compressionQuality: 0.8) {
+                            
+                            // Save to temporary file
+                            let tempDir = FileManager.default.temporaryDirectory
+                            let tempFileName = "\(UUID().uuidString).jpg"
+                            let tempURL = tempDir.appendingPathComponent(tempFileName)
+                            
+                            do {
+                                try imageData.write(to: tempURL)
+                                photoDict["path"] = tempURL.path
+                                
+                                // Generate thumbnail for overlay
+                                if let thumbnail = self.generateThumbnail(from: image, size: CGSize(width: 32, height: 32)),
+                                   let thumbnailData = thumbnail.jpegData(compressionQuality: 0.7) {
+                                    let base64String = thumbnailData.base64EncodedString()
+                                    photoDict["thumbnail"] = base64String
+                                }
+                                
+                                print("📸 Prepared photo: \(photoDict["filename"] as? String ?? "unknown") -> \(tempURL.path)")
+                            } catch {
+                                print("❌ Failed to save temp file for \(photoDict["filename"] as? String ?? "unknown"): \(error)")
+                            }
+                        }
+                        
+                        jsPhotos.append(photoDict)
+                        dispatchGroup.leave()
+                    }
+                } else {
+                    jsPhotos.append(photoDict)
+                    dispatchGroup.leave()
+                }
+            }
+        }
+        
+        // Wait for all photos to be processed, then start native background upload
+        dispatchGroup.notify(queue: .main) {
+            self.startBackgroundUpload(photos: jsPhotos, eventId: self.currentEventId ?? "unknown")
+        }
+    }
+    
+    private func startBackgroundUpload(photos: [[String: Any]], eventId: String) {
+        print("🚀 Starting native background upload for \(photos.count) photos to event \(eventId)")
+        
+        guard let jwtToken = AppDelegate.getStoredJwtToken() else {
+            print("❌ No JWT token available for background upload")
+            return
+        }
+        
+        // Show upload status overlay with total count
+        showUploadStatusOverlay()
+        updateUploadOverlayProgress(completed: 0, total: photos.count)
+        
+        // Start background uploads for each photo
+        for (index, photoData) in photos.enumerated() {
+            uploadPhoto(photoData: photoData, eventId: eventId, jwtToken: jwtToken, photoIndex: index + 1, totalPhotos: photos.count)
+        }
+    }
+    
+    private func showUploadStatusOverlay() {
+        DispatchQueue.main.async {
+            if let bridge = self.bridge {
+                bridge.eval(js: """
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                        window.Capacitor.Plugins.UploadStatusOverlay.showOverlay();
+                        console.log('✅ Upload status overlay shown');
+                    }
+                """)
+            }
+        }
+    }
+    
+    private func hideUploadStatusOverlay() {
+        DispatchQueue.main.async {
+            if let bridge = self.bridge {
+                bridge.eval(js: """
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                        window.Capacitor.Plugins.UploadStatusOverlay.hideOverlay();
+                        console.log('✅ Upload status overlay hidden');
+                    }
+                """)
+            }
+        }
+    }
+    
+    private func updateUploadOverlayProgress(completed: Int, total: Int) {
+        DispatchQueue.main.async {
+            if let bridge = self.bridge {
+                bridge.eval(js: """
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                        window.Capacitor.Plugins.UploadStatusOverlay.updateProgress({
+                            completed: \(completed),
+                            total: \(total)
+                        });
+                        console.log('📊 Overlay updated: \(completed)/\(total)');
+                    }
+                """)
+            }
+        }
+    }
+    
+    private func addThumbnailToOverlay(thumbnail: String) {
+        DispatchQueue.main.async {
+            if let bridge = self.bridge {
+                bridge.eval(js: """
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                        window.Capacitor.Plugins.UploadStatusOverlay.addPhoto({
+                            thumbnail: '\(thumbnail)'
+                        });
+                        console.log('📸 Added thumbnail to overlay');
+                    }
+                """)
+            }
+        }
+    }
+    
+    private func generateThumbnail(from image: UIImage, size: CGSize) -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+    
+    private func uploadPhoto(photoData: [String: Any], eventId: String, jwtToken: String, photoIndex: Int, totalPhotos: Int) {
+        guard let filePath = photoData["path"] as? String else {
+            print("❌ No file path found for photo \(photoIndex)")
+            return
+        }
+        
+        guard let imageData = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
+            print("❌ Failed to read image data from file for photo \(photoIndex): \(filePath)")
+            return
+        }
+        
+        // Generate proper UUID for upload tracking
+        let uploadId = UUID().uuidString.lowercased()
+        let filename = photoData["filename"] as? String ?? "photo_\(photoIndex).jpg"
+        
+        print("📤 Starting upload: \(uploadId) - \(filename)")
+        
+        // Update status to "uploading" 
+        updateUploadStatus(uploadId: uploadId, jwtToken: jwtToken, status: "uploading", progress: 0)
+        
+        // Create multipart form data
+        let boundary = "PhotoShareUpload-\(UUID().uuidString)"
+        var formData = Data()
+        
+        // Add file field
+        let uploadFilename = "photo_\(Date().timeIntervalSince1970)_\(photoIndex).jpg"
+        let mimeType = photoData["mimeType"] as? String ?? "image/jpeg"
+        
+        formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        formData.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(uploadFilename)\"\r\n".data(using: .utf8)!)
+        formData.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        formData.append(imageData)
+        formData.append("\r\n".data(using: .utf8)!)
+        
+        // Add event_id field
+        formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        formData.append("Content-Disposition: form-data; name=\"event_id\"\r\n\r\n".data(using: .utf8)!)
+        formData.append(eventId.data(using: .utf8)!)
+        formData.append("\r\n".data(using: .utf8)!)
+        
+        // Add file_name field
+        formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        formData.append("Content-Disposition: form-data; name=\"file_name\"\r\n\r\n".data(using: .utf8)!)
+        formData.append(uploadFilename.data(using: .utf8)!)
+        formData.append("\r\n".data(using: .utf8)!)
+        
+        // Add media_type field
+        formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        formData.append("Content-Disposition: form-data; name=\"media_type\"\r\n\r\n".data(using: .utf8)!)
+        formData.append("photo".data(using: .utf8)!)
+        formData.append("\r\n".data(using: .utf8)!)
+        
+        // Add originalTimestamp if available
+        if let creationDate = photoData["creationDate"] as? TimeInterval {
+            let formatter = ISO8601DateFormatter()
+            let timestamp = formatter.string(from: Date(timeIntervalSince1970: creationDate))
+            formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+            formData.append("Content-Disposition: form-data; name=\"originalTimestamp\"\r\n\r\n".data(using: .utf8)!)
+            formData.append(timestamp.data(using: String.Encoding.utf8)!)
+            formData.append("\r\n".data(using: .utf8)!)
+        }
+        
+        // Close boundary
+        formData.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        // Create upload request
+        let uploadUrl = "https://jgfcfdlfcnmaripgpepl.supabase.co/functions/v1/multipart-upload"
+        guard let url = URL(string: uploadUrl) else {
+            print("❌ Invalid upload URL")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(jwtToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = formData
+        
+        // Set current thumbnail in overlay right before upload starts
+        if let thumbnailBase64 = photoData["thumbnail"] as? String {
+            addThumbnailToOverlay(thumbnail: thumbnailBase64)
+        }
+        
+        print("📤 Starting background upload for photo \(photoIndex)/\(totalPhotos)")
+        
+        // Perform background upload
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("❌ Upload failed for photo \(photoIndex): \(error.localizedDescription)")
+                    
+                    // Update status to failed
+                    self.updateUploadStatus(uploadId: uploadId, jwtToken: jwtToken, status: "failed", progress: 0, errorMessage: error.localizedDescription)
+                    return
+                }
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("❌ Invalid response for photo \(photoIndex)")
+                    
+                    // Update status to failed
+                    self.updateUploadStatus(uploadId: uploadId, jwtToken: jwtToken, status: "failed", progress: 0, errorMessage: "Invalid response")
+                    return
+                }
+                
+                if httpResponse.statusCode == 200 {
+                    print("✅ Photo \(photoIndex)/\(totalPhotos) uploaded successfully")
+                    
+                    // Update status to completed
+                    self.updateUploadStatus(uploadId: uploadId, jwtToken: jwtToken, status: "completed", progress: 100)
+                    
+                    // Show notification for successful upload
+                    self.showUploadNotification(title: "Upload Complete", body: "Photo \(photoIndex) of \(totalPhotos) uploaded successfully")
+                    
+                    // Check if all uploads are complete
+                    self.checkIfAllUploadsComplete(totalPhotos: totalPhotos)
+                } else {
+                    let errorMessage = data.flatMap { String(data: $0, encoding: .utf8) } ?? "Unknown error"
+                    print("❌ Upload failed for photo \(photoIndex): HTTP \(httpResponse.statusCode) - \(errorMessage)")
+                    
+                    // Update status to failed
+                    self.updateUploadStatus(uploadId: uploadId, jwtToken: jwtToken, status: "failed", progress: 0, errorMessage: "HTTP \(httpResponse.statusCode): \(errorMessage)")
+                }
+            }
+        }
+        
+        task.resume()
+    }
+    
+    // MARK: - Upload Status API Integration
+    private func updateUploadStatus(uploadId: String, jwtToken: String, status: String, progress: Int, errorMessage: String? = nil) {
+        let statusUpdateUrl = "https://jgfcfdlfcnmaripgpepl.supabase.co/functions/v1/upload-status-update/\(uploadId)"
+        guard let url = URL(string: statusUpdateUrl) else {
+            print("❌ Invalid status update URL")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(jwtToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        var body: [String: Any] = [
+            "status": status,
+            "progress": progress
+        ]
+        
+        if let errorMessage = errorMessage {
+            body["error_message"] = errorMessage
+        }
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            print("❌ Failed to serialize status update body: \(error)")
+            return
+        }
+        
+        print("📊 Updating upload status: \(uploadId) -> \(status) (\(progress)%)")
+        
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("⚠️ Status update failed: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                if httpResponse.statusCode == 200 {
+                    print("✅ Status updated successfully for \(uploadId)")
+                } else {
+                    let errorMessage = data.flatMap { String(data: $0, encoding: .utf8) } ?? "Unknown error"
+                    print("⚠️ Status update failed: HTTP \(httpResponse.statusCode) - \(errorMessage)")
+                }
+            }
+        }
+        
+        task.resume()
+    }
+    
+    private var completedUploads = 0
+    private var totalUploadCount = 0
+    
+    private func checkIfAllUploadsComplete(totalPhotos: Int) {
+        completedUploads += 1
+        totalUploadCount = totalPhotos
+        
+        print("📊 Upload progress: \(completedUploads)/\(totalPhotos) complete")
+        
+        // Update overlay progress
+        updateUploadOverlayProgress(completed: completedUploads, total: totalPhotos)
+        
+        if completedUploads >= totalPhotos {
+            print("✅ All uploads complete! Hiding overlay after 3 seconds")
+            
+            // Hide overlay after a brief delay to show completion
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                self.hideUploadStatusOverlay()
+                
+                // Reset counters for next upload session
+                self.completedUploads = 0
+                self.totalUploadCount = 0
+            }
+        }
+    }
+    
+    private func showUploadNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = UNNotificationSound.default
+        
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("❌ Failed to show notification: \(error)")
+            }
         }
     }
     
@@ -715,10 +1276,12 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         let uploadedPhotoIds = call.getArray("uploadedPhotoIds", String.self) ?? []
         
         DispatchQueue.global(qos: .userInitiated).async {
+            // Convert legacy uploadedPhotoIds to empty metadata for compatibility
+            let uploadedPhotosMetadata: [[String: Any]] = []
             let photos = self.fetchEventPhotos(
                 startDate: startDate,
                 endDate: endDate,
-                uploadedPhotoIds: Set(uploadedPhotoIds)
+                uploadedPhotos: uploadedPhotosMetadata
             )
             
             let metadata = photos.map { photo in
@@ -742,7 +1305,7 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
-    private func fetchEventPhotos(startDate: Date, endDate: Date, uploadedPhotoIds: Set<String>) -> [EventPhoto] {
+    private func fetchEventPhotos(startDate: Date, endDate: Date, uploadedPhotos: [[String: Any]]) -> [EventPhoto] {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate <= %@ AND mediaType == %d",
@@ -754,7 +1317,8 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         var eventPhotos: [EventPhoto] = []
         
         assets.enumerateObjects { asset, index, stop in
-            let isUploaded = uploadedPhotoIds.contains(asset.localIdentifier)
+            // Use multi-factor duplicate detection
+            let isUploaded = EventPhotoPicker.isPhotoUploaded(asset: asset, uploadedPhotos: uploadedPhotos)
             
             let eventPhoto = EventPhoto(
                 asset: asset,
@@ -776,6 +1340,180 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         
         return eventPhotos
     }
+    
+    // MARK: - File Hash Generation
+    static func generatePhotoHashSync(for asset: PHAsset) -> String? {
+        let semaphore = DispatchSemaphore(value: 0)
+        var fileHash: String?
+        
+        let options = PHImageRequestOptions()
+        options.isSynchronous = false
+        options.isNetworkAccessAllowed = false  // Disable network access for faster processing
+        options.deliveryMode = .fastFormat      // Use fast format for quicker processing
+        
+        PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
+            defer { semaphore.signal() }
+            
+            guard let imageData = data else {
+                print("❌ Failed to get image data for hash generation (sync)")
+                return
+            }
+            
+            // Generate SHA-256 hash
+            let hash = SHA256.hash(data: imageData)
+            fileHash = hash.compactMap { String(format: "%02x", $0) }.joined()
+            print("📱 Generated device hash: \(fileHash ?? "nil") (size: \(imageData.count) bytes)")
+        }
+        
+        // Wait for completion with longer timeout for sync method
+        let timeout = DispatchTime.now() + .milliseconds(1000)
+        if semaphore.wait(timeout: timeout) == .timedOut {
+            print("⚠️ Sync hash generation timed out for asset")
+            return nil
+        }
+        
+        return fileHash
+    }
+    
+    // MARK: - Multi-Factor Duplicate Detection
+    static func isPhotoUploaded(asset: PHAsset, uploadedPhotos: [[String: Any]]) -> Bool {
+        print("🔍 Checking asset: \(asset.localIdentifier) against \(uploadedPhotos.count) uploaded photos")
+        
+        // Get device photo metadata
+        guard let deviceHash = generatePhotoHashSync(for: asset) else {
+            print("❌ Could not generate hash for device photo \(asset.localIdentifier)")
+            return false
+        }
+        
+        print("📱 Device hash: \(deviceHash)")
+        
+        let deviceTimestamp = asset.creationDate ?? Date()
+        let deviceWidth = asset.pixelWidth
+        let deviceHeight = asset.pixelHeight
+        
+        // Get EXIF data for camera info
+        let deviceCameraMake = getCameraMake(for: asset)
+        let deviceCameraModel = getCameraModel(for: asset)
+        
+        // Check each uploaded photo
+        for (index, uploadedPhoto) in uploadedPhotos.enumerated() {
+            print("📋 Checking uploaded photo \(index): keys = \(Array(uploadedPhoto.keys))")
+            
+            // Primary: Exact hash matching (100% confidence)
+            if let uploadedHash = uploadedPhoto["file_hash"] as? String {
+                print("🔍 Comparing hashes: device=\(deviceHash) vs uploaded=\(uploadedHash)")
+                if deviceHash == uploadedHash {
+                    print("✅ EXACT MATCH: File hash match found for \(asset.localIdentifier)")
+                    return true
+                } else {
+                    print("❌ Hash mismatch for photo \(index)")
+                }
+            } else {
+                print("⚠️ No file_hash in uploaded photo \(index)")
+            }
+            
+            // Secondary: Perceptual hash matching (95% confidence) 
+            if let uploadedPerceptualHash = uploadedPhoto["perceptual_hash"] as? String {
+                // TODO: Generate perceptual hash for device photo and compare
+                print("📸 Found perceptual hash in API: \(uploadedPerceptualHash)")
+                // For now, skip perceptual matching since we need to implement perceptual hash generation
+            }
+            
+            // Fallback: Metadata matching for HEIF conversion edge cases
+            print("🔍 Attempting metadata fallback for photo \(index)")
+            
+            // Debug what we have available
+            let timestampString = uploadedPhoto["original_timestamp"] as? String
+            let sizeBytes = uploadedPhoto["file_size_bytes"] as? Int
+            print("📋 Available fields: timestamp=\(timestampString ?? "nil"), size=\(sizeBytes ?? 0)")
+            
+            if let uploadedTimestampString = timestampString,
+               let uploadedSizeBytes = sizeBytes {
+                
+                // Try to parse timestamp with debug
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                let uploadedTimestamp = formatter.date(from: uploadedTimestampString)
+                
+                print("📅 Parsing timestamp '\(uploadedTimestampString)' -> \(uploadedTimestamp?.description ?? "FAILED")")
+                
+                guard let timestamp = uploadedTimestamp else {
+                    print("❌ Failed to parse timestamp for photo \(index)")
+                    continue
+                }
+                
+                print("✅ Basic metadata available - proceeding with comparison")
+                
+                // Use device dimensions since uploaded dimensions may be null
+                let uploadedWidth = uploadedPhoto["image_width"] as? Int ?? deviceWidth
+                let uploadedHeight = uploadedPhoto["image_height"] as? Int ?? deviceHeight
+                
+                let timestampDiff = abs(deviceTimestamp.timeIntervalSince(timestamp))
+                let dimensionsMatch = (deviceWidth == uploadedWidth && deviceHeight == uploadedHeight)
+                
+                // Get device file size
+                let deviceSize = getFileSize(for: asset)
+                let sizeDiff = deviceSize > 0 ? abs(deviceSize - uploadedSizeBytes) : Int.max
+                
+                // Check metadata matching conditions - increased threshold for HEIF conversion delays
+                let timestampWithin60Seconds = timestampDiff <= 60.0 // Allow 60s for format conversion
+                let sizeSimilar = sizeDiff <= 1_000_000 // Within 1MB for format conversion cases
+                
+                print("📊 Metadata comparison for photo \(index):")
+                print("   Device timestamp: \(deviceTimestamp)")
+                print("   Uploaded timestamp: \(timestamp)")
+                print("   Timestamp diff: \(timestampDiff)s (within 60s: \(timestampWithin60Seconds))")
+                print("   Device size: \(deviceSize) bytes, Uploaded size: \(uploadedSizeBytes) bytes")
+                print("   Size diff: \(sizeDiff) bytes (similar: \(sizeSimilar))")  
+                print("   Dimensions: \(deviceWidth)x\(deviceHeight) vs \(uploadedWidth)x\(uploadedHeight) (match: \(dimensionsMatch))")
+                
+                if timestampWithin60Seconds && sizeSimilar && dimensionsMatch {
+                    print("✅ METADATA MATCH: Found match for \(asset.localIdentifier)")
+                    return true
+                }
+            } else {
+                print("❌ Missing metadata fields for photo \(index) - skipping metadata comparison")
+            }
+        }
+        
+        print("❌ NO MATCHES: Photo \(asset.localIdentifier) not found in uploaded photos")
+        return false
+    }
+    
+    private static func getCameraMake(for asset: PHAsset) -> String? {
+        // This would require requesting image metadata, simplified for now
+        return nil
+    }
+    
+    private static func getCameraModel(for asset: PHAsset) -> String? {
+        // This would require requesting image metadata, simplified for now
+        return nil
+    }
+    
+    private static func getFileSize(for asset: PHAsset) -> Int {
+        let semaphore = DispatchSemaphore(value: 0)
+        var fileSize = 0
+        
+        let options = PHImageRequestOptions()
+        options.isSynchronous = false
+        options.isNetworkAccessAllowed = false
+        options.deliveryMode = .fastFormat
+        
+        PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
+            defer { semaphore.signal() }
+            
+            if let imageData = data {
+                fileSize = imageData.count
+            }
+        }
+        
+        let timeout = DispatchTime.now() + .milliseconds(100)
+        if semaphore.wait(timeout: timeout) == .timedOut {
+            print("⚠️ File size request timed out")
+        }
+        
+        return fileSize
+    }
 }
 
 // MARK: - EventPhoto Data Model
@@ -795,13 +1533,15 @@ class EventPhotoPickerViewController: UIViewController {
     private let startDate: Date
     private let endDate: Date
     private let eventId: String
-    private let uploadedPhotoIds: Set<String>
+    private let uploadedPhotos: [[String: Any]]
     private let allowMultipleSelection: Bool
     private let pickerTitle: String
     private let jwtToken: String?
     private let jwtData: [String: Any]?
     
     private var eventPhotos: [EventPhoto] = []
+    private var newPhotos: [EventPhoto] = []
+    private var uploadedEventPhotos: [EventPhoto] = []
     private var selectedPhotos: Set<String> = []
     
     private var collectionView: UICollectionView!
@@ -811,14 +1551,19 @@ class EventPhotoPickerViewController: UIViewController {
     private var selectAllToolbarButton: UIButton!
     private var uploadToolbarButton: UIButton!
     
+    // Loading overlay views
+    private var loadingOverlay: UIView?
+    private var loadingLabel: UILabel?
+    private var activityIndicator: UIActivityIndicatorView?
+    
     var onComplete: (([EventPhoto]) -> Void)?
     var onCancel: (() -> Void)?
     
-    init(startDate: Date, endDate: Date, eventId: String, uploadedPhotoIds: Set<String>, allowMultipleSelection: Bool, title: String, jwtToken: String? = nil, jwtData: [String: Any]? = nil) {
+    init(startDate: Date, endDate: Date, eventId: String, uploadedPhotos: [[String: Any]], allowMultipleSelection: Bool, title: String, jwtToken: String? = nil, jwtData: [String: Any]? = nil) {
         self.startDate = startDate
         self.endDate = endDate
         self.eventId = eventId
-        self.uploadedPhotoIds = uploadedPhotoIds
+        self.uploadedPhotos = uploadedPhotos
         self.allowMultipleSelection = allowMultipleSelection
         self.pickerTitle = title
         self.jwtToken = jwtToken
@@ -888,6 +1633,7 @@ class EventPhotoPickerViewController: UIViewController {
         collectionView.allowsMultipleSelection = allowMultipleSelection
         
         collectionView.register(EventPhotoCell.self, forCellWithReuseIdentifier: "EventPhotoCell")
+        collectionView.register(PhotoSectionHeaderView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader, withReuseIdentifier: "SectionHeader")
         
         view.addSubview(collectionView)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -957,7 +1703,99 @@ class EventPhotoPickerViewController: UIViewController {
         ])
     }
     
+    private func showLoadingOverlay() {
+        // Create overlay background
+        let overlay = UIView(frame: view.bounds)
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        overlay.alpha = 0.0
+        
+        // Create content container
+        let contentView = UIView()
+        contentView.backgroundColor = UIColor.systemBackground
+        contentView.layer.cornerRadius = 12
+        contentView.layer.shadowColor = UIColor.black.cgColor
+        contentView.layer.shadowOffset = CGSize(width: 0, height: 2)
+        contentView.layer.shadowOpacity = 0.3
+        contentView.layer.shadowRadius = 8
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create activity indicator
+        let activityIndicator = UIActivityIndicatorView(style: .large)
+        activityIndicator.color = UIColor.systemBlue
+        activityIndicator.startAnimating()
+        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create loading label
+        let loadingLabel = UILabel()
+        loadingLabel.text = "Checking for uploaded photos..."
+        loadingLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        loadingLabel.textColor = UIColor.label
+        loadingLabel.textAlignment = .center
+        loadingLabel.numberOfLines = 0 // Allow multiple lines
+        loadingLabel.lineBreakMode = .byWordWrapping // Wrap by words
+        loadingLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add views
+        contentView.addSubview(activityIndicator)
+        contentView.addSubview(loadingLabel)
+        overlay.addSubview(contentView)
+        view.addSubview(overlay)
+        
+        // Setup constraints
+        NSLayoutConstraint.activate([
+            // Center content view
+            contentView.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            contentView.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+            contentView.widthAnchor.constraint(equalToConstant: 280), // Increased width
+            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120), // Minimum height
+            
+            // Activity indicator
+            activityIndicator.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            activityIndicator.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
+            
+            // Loading label
+            loadingLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            loadingLabel.topAnchor.constraint(equalTo: activityIndicator.bottomAnchor, constant: 16),
+            loadingLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            loadingLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            loadingLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -20) // Ensure bottom padding
+        ])
+        
+        // Store references
+        self.loadingOverlay = overlay
+        self.loadingLabel = loadingLabel
+        self.activityIndicator = activityIndicator
+        
+        // Animate in
+        UIView.animate(withDuration: 0.3) {
+            overlay.alpha = 1.0
+        }
+    }
+    
+    private func hideLoadingOverlay() {
+        guard let overlay = loadingOverlay else { return }
+        
+        UIView.animate(withDuration: 0.3, animations: {
+            overlay.alpha = 0.0
+        }) { _ in
+            overlay.removeFromSuperview()
+            self.loadingOverlay = nil
+            self.loadingLabel = nil
+            self.activityIndicator?.stopAnimating()
+            self.activityIndicator = nil
+        }
+    }
+    
+    private func updateLoadingProgress(current: Int, total: Int) {
+        DispatchQueue.main.async { [weak self] in
+            self?.loadingLabel?.text = "Checking for duplicates...\n(\(current)/\(total))"
+        }
+    }
+    
     private func loadEventPhotos() {
+        // Show loading overlay
+        showLoadingOverlay()
+        
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
@@ -970,9 +1808,18 @@ class EventPhotoPickerViewController: UIViewController {
             
             let assets = PHAsset.fetchAssets(with: options)
             var photos: [EventPhoto] = []
+            let totalCount = assets.count
+            
+            print("🔍 Starting duplicate detection for \(totalCount) photos...")
             
             assets.enumerateObjects { asset, index, stop in
-                let isUploaded = self.uploadedPhotoIds.contains(asset.localIdentifier)
+                // Update progress periodically (every 10 photos or on the last one)
+                if index % 10 == 0 || index == totalCount - 1 {
+                    self.updateLoadingProgress(current: index + 1, total: totalCount)
+                }
+                
+                // Use multi-factor duplicate detection
+                let isUploaded = EventPhotoPicker.isPhotoUploaded(asset: asset, uploadedPhotos: self.uploadedPhotos)
                 
                 let eventPhoto = EventPhoto(
                     asset: asset,
@@ -988,12 +1835,33 @@ class EventPhotoPickerViewController: UIViewController {
                 photos.append(eventPhoto)
             }
             
+            print("✅ Duplicate detection completed for \(totalCount) photos")
+            
             DispatchQueue.main.async {
                 self.eventPhotos = photos
+                self.separatePhotosIntoSections()
                 self.collectionView.reloadData()
                 self.updateUI()
+                
+                // Hide loading overlay
+                self.hideLoadingOverlay()
             }
         }
+    }
+    
+    private func separatePhotosIntoSections() {
+        newPhotos.removeAll()
+        uploadedEventPhotos.removeAll()
+        
+        for photo in eventPhotos {
+            if photo.isUploaded {
+                uploadedEventPhotos.append(photo)
+            } else {
+                newPhotos.append(photo)
+            }
+        }
+        
+        print("📊 Separated photos: \(newPhotos.count) new, \(uploadedEventPhotos.count) uploaded")
     }
     
     private func updateUI() {
@@ -1043,425 +1911,13 @@ class EventPhotoPickerViewController: UIViewController {
         }
         
         print("🚀 User selected \(selectedEventPhotos.count) photos for upload")
-        startPhotoUpload(photos: selectedEventPhotos)
-    }
-    
-    // MARK: - Photo Upload Implementation
-    
-    private func startPhotoUpload(photos: [EventPhoto]) {
-        print("🚀 Starting upload of \(photos.count) photos to event: \(eventId)")
+        print("📤 Passing photos to main plugin for JavaScript upload service")
         
-        // Show upload progress dialog
-        showUploadProgressDialog(totalPhotos: photos.count)
+        // Use the callback to pass photos back to the main plugin for upload
+        onComplete?(selectedEventPhotos)
         
-        // Start upload in background queue
-        DispatchQueue.global(qos: .userInitiated).async {
-            self.uploadPhotosSequentially(photos: photos)
-        }
-    }
-    
-    private var uploadProgressAlert: UIAlertController?
-    private var cancelUpload = false
-    
-    private func showUploadProgressDialog(totalPhotos: Int) {
-        DispatchQueue.main.async {
-            // Dismiss any existing progress dialog
-            if let existingAlert = self.uploadProgressAlert {
-                existingAlert.dismiss(animated: false, completion: nil)
-            }
-            
-            // Create progress alert
-            let alert = UIAlertController(
-                title: "Uploading Photos",
-                message: "Preparing upload...",
-                preferredStyle: .alert
-            )
-            
-            // Add cancel button
-            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
-                print("📤 Upload cancelled by user")
-                self.cancelUpload = true
-            })
-            
-            self.uploadProgressAlert = alert
-            self.present(alert, animated: true)
-        }
-    }
-    
-    private func updateUploadProgress(current: Int, total: Int, photoName: String) {
-        DispatchQueue.main.async {
-            guard let alert = self.uploadProgressAlert else { return }
-            
-            let progress = "\(current)/\(total)"
-            alert.title = "Uploading Photos (\(progress))"
-            alert.message = "Uploading: \(photoName)"
-        }
-    }
-    
-    private func uploadPhotosSequentially(photos: [EventPhoto]) {
-        var successCount = 0
-        var failCount = 0
-        var failedPhotos: [String] = []
-        
-        for (index, photo) in photos.enumerated() {
-            // Check for cancellation
-            if cancelUpload {
-                print("📤 Upload cancelled by user")
-                break
-            }
-            
-            let currentIndex = index + 1
-            let photoName = "Photo_\(currentIndex)"
-            
-            // Update progress
-            updateUploadProgress(current: currentIndex, total: photos.count, photoName: photoName)
-            
-            // Upload this photo
-            let uploadSuccess = uploadSinglePhoto(photo: photo, photoName: photoName)
-            
-            if uploadSuccess {
-                successCount += 1
-                print("✅ Photo \(currentIndex)/\(photos.count) uploaded successfully")
-            } else {
-                failCount += 1
-                failedPhotos.append(photoName)
-                print("❌ Photo \(currentIndex)/\(photos.count) upload failed")
-            }
-        }
-        
-        // Show results
-        DispatchQueue.main.async {
-            self.showUploadResults(successCount: successCount, failCount: failCount, failedPhotos: failedPhotos)
-        }
-    }
-    
-    private func uploadSinglePhoto(photo: EventPhoto, photoName: String) -> Bool {
-        print("📤 Uploading photo: \(photoName)")
-        
-        // Step 1: Convert photo to base64
-        guard let base64Data = convertPhotoToBase64(photo: photo) else {
-            print("❌ Failed to convert photo to base64")
-            return false
-        }
-        
-        // Step 2: Get JWT token
-        guard let jwtToken = getJwtTokenForUpload() else {
-            print("❌ No JWT token available for upload")
-            return false
-        }
-        
-        // Step 3: Build upload request
-        guard let requestBody = buildUploadRequestBody(photo: photo, base64Data: base64Data, photoName: photoName) else {
-            print("❌ Failed to build request body")
-            return false
-        }
-        
-        // Step 4: Send upload request
-        return sendUploadRequest(jwtToken: jwtToken, requestBody: requestBody)
-    }
-    
-    private func convertPhotoToBase64(photo: EventPhoto) -> String? {
-        let semaphore = DispatchSemaphore(value: 0)
-        var base64Result: String?
-        
-        let options = PHImageRequestOptions()
-        options.isSynchronous = false
-        options.isNetworkAccessAllowed = true
-        options.deliveryMode = .highQualityFormat
-        options.resizeMode = .exact
-        
-        // Request full resolution image
-        PHImageManager.default().requestImageDataAndOrientation(for: photo.asset, options: options) { (imageData, dataUTI, orientation, info) in
-            defer { semaphore.signal() }
-            
-            guard let data = imageData else {
-                print("❌ Failed to get image data")
-                return
-            }
-            
-            // Convert to base64
-            base64Result = data.base64EncodedString()
-            print("✅ Converted photo to base64 (size: \(base64Result?.count ?? 0) chars)")
-        }
-        
-        // Wait for async request to complete (with timeout)
-        let timeout = DispatchTime.now() + .seconds(30)
-        let result = semaphore.wait(timeout: timeout)
-        
-        if result == .timedOut {
-            print("❌ Photo conversion timed out")
-            return nil
-        }
-        
-        return base64Result
-    }
-    
-    private func getJwtTokenForUpload() -> String? {
-        print("🔄 Getting JWT token for upload - checking freshness like Android...")
-        
-        // Priority 1: Fresh JWT token with timestamp check (Android pattern)
-        if let tokenData = AppDelegate.getStoredJwtData(),
-           let storedToken = tokenData["token"] as? String,
-           let retrievedAt = tokenData["retrievedAt"] as? TimeInterval {
-            
-            let tokenAge = Date().timeIntervalSince1970 - retrievedAt
-            print("🔍 Stored token age: \(Int(tokenAge)) seconds")
-            
-            // Fresh token must be less than 5 minutes old (300 seconds) like Android
-            if tokenAge < 300 {
-                print("✅ Using fresh JWT token from storage (age: \(Int(tokenAge))s, length: \(storedToken.count))")
-                return storedToken
-            } else {
-                print("⚠️ Stored JWT token is expired (age: \(Int(tokenAge))s > 300s)")
-                print("🔄 Triggering background JWT refresh for future uploads...")
-                AppDelegate.refreshJwtTokenIfNeeded()
-            }
-        } else {
-            print("⚠️ No stored JWT token data found, triggering refresh...")
-            AppDelegate.refreshJwtTokenIfNeeded()
-        }
-        
-        // Priority 2: Instance JWT token (from EventPhotoPicker initialization)
-        if let instanceToken = jwtToken {
-            print("✅ Using instance JWT token as fallback (length: \(instanceToken.count))")
-            return instanceToken
-        }
-        
-        // Priority 3: Any stored token as last resort (even if expired)
-        if let fallbackToken = AppDelegate.getStoredJwtToken() {
-            print("⚠️ Using potentially expired JWT token as last resort (length: \(fallbackToken.count))")
-            return fallbackToken
-        }
-        
-        print("❌ No JWT token available at all")
-        return nil
-    }
-    
-    private func getDeviceIdentifier() -> String? {
-        // Create a unique device identifier based on device info
-        let deviceInfo = UIDevice.current
-        let deviceName = deviceInfo.name
-        let systemVersion = deviceInfo.systemVersion
-        let model = deviceInfo.model
-        
-        // Create a simple device ID (in production, you might want to use Keychain for persistence)
-        let deviceId = "\(model)-\(deviceName.prefix(8))-\(systemVersion)".replacingOccurrences(of: " ", with: "")
-        return deviceId
-    }
-    
-    private func buildUploadRequestBody(photo: EventPhoto, base64Data: String, photoName: String) -> Data? {
-        do {
-            // Extract clean event ID
-            var cleanEventId = eventId
-            if eventId.contains("/event/") {
-                if let range = eventId.range(of: "/event/") {
-                    cleanEventId = String(eventId[range.upperBound...])
-                    print("🔧 Extracted clean event ID: '\(cleanEventId)'")
-                }
-            }
-            
-            // Build JSON request body
-            var requestDict: [String: Any] = [
-                "eventId": cleanEventId,
-                "fileName": photoName,
-                "fileData": base64Data,
-                "mediaType": "photo"
-            ]
-            
-            // Add timestamp as ISO string if available
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            requestDict["originalTimestamp"] = isoFormatter.string(from: photo.creationDate)
-            
-            // Add device ID
-            if let deviceId = getDeviceIdentifier() {
-                requestDict["deviceId"] = deviceId
-            }
-            
-            // Add metadata object with location and other info
-            var metadata: [String: Any] = [
-                "source": "native-plugin",
-                "platform": "ios",
-                "pixelWidth": photo.pixelWidth,
-                "pixelHeight": photo.pixelHeight
-            ]
-            
-            // Add location to metadata if available
-            if let location = photo.location {
-                metadata["location"] = [
-                    "latitude": location.coordinate.latitude,
-                    "longitude": location.coordinate.longitude
-                ]
-            }
-            
-            requestDict["metadata"] = metadata
-            
-            // Convert to JSON data
-            let jsonData = try JSONSerialization.data(withJSONObject: requestDict, options: [])
-            print("📦 Built upload request (size: \(jsonData.count) bytes)")
-            
-            return jsonData
-            
-        } catch {
-            print("❌ Failed to build request body: \(error)")
-            return nil
-        }
-    }
-    
-    private func sendUploadRequest(jwtToken: String, requestBody: Data) -> Bool {
-        guard let url = URL(string: "https://jgfcfdlfcnmaripgpepl.supabase.co/functions/v1/mobile-upload") else {
-            print("❌ Invalid upload URL")
-            return false
-        }
-        
-        let semaphore = DispatchSemaphore(value: 0)
-        var uploadSuccess = false
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(jwtToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpnZmNmZGxmY25tYXJpcGdwZXBsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI1NDM2MjgsImV4cCI6MjA2ODExOTYyOH0.OmkqPDJM8-BKLDo5WxsL8Nop03XxAaygNaToOMKkzGY", forHTTPHeaderField: "apikey")
-        request.setValue("ios", forHTTPHeaderField: "X-Client-Platform")
-        request.setValue("native-plugin", forHTTPHeaderField: "X-Upload-Source")
-        request.setValue("1.0.0", forHTTPHeaderField: "X-Client-Version")
-        request.timeoutInterval = 90 // 90 seconds timeout for large uploads
-        request.httpBody = requestBody
-        
-        print("📡 Sending upload request to: \(url.absoluteString)")
-        
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            defer { semaphore.signal() }
-            
-            if let error = error {
-                print("❌ Upload request failed: \(error.localizedDescription)")
-                return
-            }
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                print("❌ Invalid response type")
-                return
-            }
-            
-            print("📨 Upload response code: \(httpResponse.statusCode)")
-            
-            if httpResponse.statusCode == 200 {
-                if let data = data, let responseString = String(data: data, encoding: .utf8) {
-                    print("✅ Upload successful: \(responseString)")
-                    
-                    // Try to parse the response to get more details
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let success = json["success"] as? Bool,
-                       success {
-                        
-                        if let duplicate = json["duplicate"] as? Bool, duplicate {
-                            print("🔄 Duplicate photo detected, skipped upload")
-                        } else if let mediaId = json["mediaId"] as? String,
-                                  let fileUrl = json["fileUrl"] as? String {
-                            print("🎉 New upload successful - Media ID: \(mediaId)")
-                            print("📎 File URL: \(fileUrl)")
-                        }
-                    }
-                }
-                uploadSuccess = true
-            } else {
-                // Handle error response
-                var errorMessage = "Unknown error"
-                if let data = data, let errorString = String(data: data, encoding: .utf8) {
-                    errorMessage = errorString
-                }
-                
-                print("❌ Upload failed with code \(httpResponse.statusCode): \(errorMessage)")
-                
-                // Handle specific error codes according to API spec
-                switch httpResponse.statusCode {
-                case 400:
-                    print("❌ Bad Request: Missing required fields")
-                case 401:
-                    print("❌ Unauthorized: JWT token is invalid or expired")
-                case 403:
-                    print("❌ Forbidden: Not authorized for this event")
-                case 413:
-                    print("❌ File too large: Maximum 10MB for photos")
-                case 429:
-                    print("❌ Rate limit exceeded: Too many uploads")
-                case 507:
-                    print("❌ Storage quota exceeded: Event storage full")
-                case 500:
-                    print("❌ Server error: Please try again")
-                default:
-                    print("❌ Unexpected error code: \(httpResponse.statusCode)")
-                }
-            }
-        }
-        
-        task.resume()
-        
-        // Wait for request to complete (with timeout)
-        let timeout = DispatchTime.now() + .seconds(90)
-        let result = semaphore.wait(timeout: timeout)
-        
-        if result == .timedOut {
-            print("❌ Upload request timed out")
-            task.cancel()
-            return false
-        }
-        
-        return uploadSuccess
-    }
-    
-    private func showUploadResults(successCount: Int, failCount: Int, failedPhotos: [String]) {
-        // Dismiss progress dialog
-        uploadProgressAlert?.dismiss(animated: true)
-        uploadProgressAlert = nil
-        
-        // Build result message
-        var message = "Upload Complete!\n\n"
-        
-        if successCount > 0 {
-            message += "✅ \(successCount) photo"
-            if successCount > 1 { message += "s" }
-            message += " uploaded successfully\n"
-        }
-        
-        if failCount > 0 {
-            message += "❌ \(failCount) photo"
-            if failCount > 1 { message += "s" }
-            message += " failed to upload\n"
-            
-            if !failedPhotos.isEmpty {
-                message += "\nFailed photos:\n"
-                for photoName in failedPhotos {
-                    message += "• \(photoName)\n"
-                }
-            }
-        }
-        
-        // Show results dialog
-        let alert = UIAlertController(
-            title: "Upload Results",
-            message: message,
-            preferredStyle: .alert
-        )
-        
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
-            if successCount > 0 {
-                // Clear selection and close if any uploads succeeded
-                self.selectedPhotos.removeAll()
-                self.collectionView.reloadData()
-                
-                // Call completion callback with successful uploads (for compatibility)
-                let successfulPhotos = self.eventPhotos.filter { photo in
-                    // This is a simplified approach - in a real implementation,
-                    // we'd track which specific photos succeeded
-                    return successCount > 0
-                }
-                self.onComplete?(successfulPhotos)
-                self.dismiss(animated: true)
-            }
-        })
-        
-        present(alert, animated: true)
+        // Dismiss this view controller
+        dismiss(animated: true)
     }
     
     private func showAlert(title: String, message: String) {
@@ -1472,14 +1928,33 @@ class EventPhotoPickerViewController: UIViewController {
 }
 
 // MARK: - UICollectionViewDataSource & Delegate
-extension EventPhotoPickerViewController: UICollectionViewDataSource, UICollectionViewDelegate {
+extension EventPhotoPickerViewController: UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        var sections = 0
+        if !newPhotos.isEmpty { sections += 1 }
+        if !uploadedEventPhotos.isEmpty { sections += 1 }
+        return max(sections, 1) // Always show at least 1 section
+    }
+    
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return eventPhotos.count
+        let sectionIndex = getSectionIndex(section)
+        switch sectionIndex {
+        case 0: return newPhotos.count
+        case 1: return uploadedEventPhotos.count
+        default: return 0
+        }
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "EventPhotoCell", for: indexPath) as! EventPhotoCell
-        let photo = eventPhotos[indexPath.item]
+        let sectionIndex = getSectionIndex(indexPath.section)
+        
+        let photo: EventPhoto
+        switch sectionIndex {
+        case 0: photo = newPhotos[indexPath.item]
+        case 1: photo = uploadedEventPhotos[indexPath.item]
+        default: return cell
+        }
         
         cell.configure(
             with: photo,
@@ -1490,8 +1965,49 @@ extension EventPhotoPickerViewController: UICollectionViewDataSource, UICollecti
         return cell
     }
     
+    private func getSectionIndex(_ section: Int) -> Int {
+        if !newPhotos.isEmpty && section == 0 {
+            return 0 // New photos section
+        } else if !uploadedEventPhotos.isEmpty {
+            return 1 // Uploaded photos section
+        }
+        return 0
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
+        if kind == UICollectionView.elementKindSectionHeader {
+            let header = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: "SectionHeader", for: indexPath) as! PhotoSectionHeaderView
+            
+            let sectionIndex = getSectionIndex(indexPath.section)
+            if sectionIndex == 0 && !newPhotos.isEmpty {
+                header.configure(title: "New Photos (\(newPhotos.count))")
+            } else if sectionIndex == 1 && !uploadedEventPhotos.isEmpty {
+                header.configure(title: "Already Uploaded (\(uploadedEventPhotos.count))")
+            }
+            
+            return header
+        }
+        
+        return UICollectionReusableView()
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForHeaderInSection section: Int) -> CGSize {
+        let sectionIndex = getSectionIndex(section)
+        if (sectionIndex == 0 && !newPhotos.isEmpty) || (sectionIndex == 1 && !uploadedEventPhotos.isEmpty) {
+            return CGSize(width: view.frame.width, height: 44)
+        }
+        return .zero
+    }
+    
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let photo = eventPhotos[indexPath.item]
+        let sectionIndex = getSectionIndex(indexPath.section)
+        
+        let photo: EventPhoto
+        switch sectionIndex {
+        case 0: photo = newPhotos[indexPath.item]
+        case 1: photo = uploadedEventPhotos[indexPath.item]
+        default: return
+        }
         
         // Don't allow selection of uploaded photos
         if photo.isUploaded {
@@ -1634,6 +2150,51 @@ class EventPhotoCell: UICollectionViewCell {
         
         // Dim uploaded photos
         imageView.alpha = isUploaded ? 0.5 : 1.0
+        
+        // Show overlay badge for uploaded photos
+        if isUploaded {
+            uploadedOverlay.isHidden = false
+            uploadedLabel.text = "✓ Uploaded"
+            uploadedLabel.textColor = UIColor.white
+            uploadedLabel.font = UIFont.boldSystemFont(ofSize: 12)
+            
+            // Keep full opacity to see the badge clearly
+            imageView.alpha = 1.0
+        }
+    }
+}
+
+// MARK: - PhotoSectionHeaderView
+class PhotoSectionHeaderView: UICollectionReusableView {
+    private let titleLabel = UILabel()
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func setupUI() {
+        backgroundColor = UIColor.systemGroupedBackground
+        
+        titleLabel.font = UIFont.boldSystemFont(ofSize: 18)
+        titleLabel.textColor = UIColor.label
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        addSubview(titleLabel)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16)
+        ])
+    }
+    
+    func configure(title: String) {
+        titleLabel.text = title
     }
 }
 
@@ -2390,5 +2951,12 @@ class RegularPhotoCell: UICollectionViewCell {
         
         // Update selection state
         selectionOverlay.isHidden = !isSelected
+    }
+}
+
+extension Date {
+    func ISO8601String() -> String {
+        let formatter = ISO8601DateFormatter()
+        return formatter.string(from: self)
     }
 }

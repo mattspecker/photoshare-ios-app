@@ -17,6 +17,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Override point for customization after application launch.
         FirebaseApp.configure()
         
+        
         // Debug plugin registration
         print("🔍 AppDelegate: App launching with custom plugins")
         
@@ -64,14 +65,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
     
+    
     // MARK: - JWT Token Management for Native Plugins
     private var currentJwtToken: String?
     private var jwtTokenExpiration: Date?
+    private var jwtRefreshCompletion: ((String?) -> Void)?
     
-    private func retrieveJwtTokenForNativePlugins() {
+    private func retrieveJwtTokenForNativePlugins(completion: @escaping (String?) -> Void = { _ in }) {
         print("🔐 ==================== JWT TOKEN RETRIEVAL START ====================")
         print("🔐 Starting JWT token retrieval...")
         print("🔐 Current time: \(Date())")
+        
+        // Store completion handler for when token is retrieved
+        self.jwtRefreshCompletion = completion
         
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
             print("❌ Could not find window scene")
@@ -208,6 +214,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         if attempts >= maxAttempts {
             print("❌ JWT polling timeout after \(maxAttempts) attempts")
+            // Call completion handler with nil on timeout
+            if let completion = jwtRefreshCompletion {
+                print("❌ Calling JWT refresh completion handler with timeout error")
+                completion(nil)
+                jwtRefreshCompletion = nil
+            }
             return
         }
         
@@ -267,6 +279,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         UserDefaults.standard.set(token, forKey: "photoshare_jwt_token")
         
         print("🔐 JWT stored with expiration: \(expiresAt?.description ?? "unknown")")
+        
+        // Call completion handler if one is waiting
+        if let completion = jwtRefreshCompletion {
+            print("✅ Calling JWT refresh completion handler with fresh token")
+            completion(token)
+            jwtRefreshCompletion = nil
+        }
         
         processJwtToken(token: token)
     }
@@ -428,16 +447,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     // Method to trigger JWT retrieval on-demand
     @objc static func refreshJwtTokenIfNeeded() {
-        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else {
-            print("❌ Could not access AppDelegate for JWT refresh")
-            return
-        }
-        
-        if !isJwtTokenValid() {
-            print("🔄 JWT token invalid, triggering refresh...")
-            appDelegate.retrieveJwtTokenForNativePlugins()
-        } else {
-            print("✅ JWT token still valid, no refresh needed")
+        refreshJwtTokenIfNeeded { _ in }
+    }
+    
+    // Method to trigger JWT retrieval with completion handler
+    static func refreshJwtTokenIfNeeded(completion: @escaping (String?) -> Void) {
+        // Ensure UI operations happen on main thread to avoid Main Thread Checker warnings
+        DispatchQueue.main.async {
+            guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else {
+                print("❌ Could not access AppDelegate for JWT refresh")
+                completion(nil)
+                return
+            }
+            
+            if !isJwtTokenValid() {
+                print("🔄 JWT token invalid, triggering refresh...")
+                appDelegate.retrieveJwtTokenForNativePlugins(completion: completion)
+            } else {
+                print("✅ JWT token still valid, no refresh needed")
+                completion(getStoredJwtToken())
+            }
         }
     }
     
