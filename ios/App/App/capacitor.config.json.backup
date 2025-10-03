@@ -1,0 +1,76 @@
+{
+	"appId": "com.photoshare.photo-share",
+	"appName": "PhotoShare",
+	"webDir": "www",
+	"server": {
+		"url": "https://photo-share.app",
+		"cleartext": false
+	},
+	"plugins": {
+		"FirebaseApp": {
+			"file": "GoogleService-Info.plist"
+		},
+		"FirebaseAuthentication": {
+			"skipNativeAuth": false,
+			"providers": [
+				"google.com"
+			]
+		},
+		"Camera": {
+			"permissions": [
+				"camera",
+				"photos"
+			]
+		},
+		"StatusBar": {
+			"style": "DEFAULT",
+			"backgroundColor": "#ffffff",
+			"overlaysWebView": false
+		},
+		"FirebaseMessaging": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		},
+		"PushNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		},
+		"EventPhotoPicker": {},
+		"UploadManager": {},
+		"PhotoLibraryMonitor": {},
+		"QRScanner": {},
+		"AppPermissionPlugin": {},
+		"PhotoEditorPlugin": {}
+	},
+	"ios": {
+		"scheme": "App",
+		"contentInset": "automatic",
+		"backgroundColor": "#ffffff",
+		"handleApplicationNotifications": false
+	},
+	"packageClassList": [
+		"SignInWithApple",
+		"DatePickerPlugin",
+		"PhotoViewerPlugin",
+		"FirebaseAppPlugin",
+		"FirebaseAuthenticationPlugin",
+		"FirebaseMessagingPlugin",
+		"AppPlugin",
+		"CAPCameraPlugin",
+		"DevicePlugin",
+		"DialogPlugin",
+		"FileTransferPlugin",
+		"FilesystemPlugin",
+		"HapticsPlugin",
+		"KeyboardPlugin",
+		"PreferencesPlugin",
+		"PushNotificationsPlugin",
+		"StatusBarPlugin"
+	]
+}

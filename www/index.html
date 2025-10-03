@@ -99,6 +99,9 @@
   <!-- Core Scripts -->
   <script src="./config.js"></script>
   
+  <!-- Background Upload Service -->
+  <script src="./backgroundUploadService.js"></script>
+  
   <!-- EventPhotoPicker Integration -->
   <script src="./eventPhotoPicker.js"></script>
   
@@ -113,6 +116,12 @@
   
   <!-- QR Scanner Plugin -->
   <script type="module" src="./qrScanner.js"></script>
+  
+  <!-- Upload Status Overlay -->
+  <script src="./uploadStatusOverlay.js"></script>
+  
+  <!-- Auto-Upload on Resume (Android-style timing) -->
+  <script src="./autoUploadOnResume.js"></script>
   
   
   <!-- App Initialization -->
@@ -149,6 +158,12 @@
           console.log('🧪 Testing FCM extension after plugin load...');
           window.testFCMExtension();
         }, 1000);
+        
+        // Test AutoUpload plugin before redirect
+        setTimeout(() => {
+          console.log('🧪 Testing AutoUpload plugin before redirect...');
+          window.testAutoUploadFlow();
+        }, 2000);
         
         // Navigate to photo-share.app after initialization
         setTimeout(() => {
@@ -231,6 +246,154 @@
       }
     };
 
+    // Test checkUploadedPhotos method
+    window.testCheckUploadedPhotos = async function() {
+      console.log('🧪 Testing AutoUpload checkUploadedPhotos...');
+      try {
+        const plugin = window.Capacitor?.Plugins?.AutoUpload;
+        if (!plugin) {
+          throw new Error('AutoUpload plugin not found');
+        }
+        
+        // Get JWT token like other methods
+        let jwtToken = null;
+        try {
+          if (window.getPhotoShareJwtToken && typeof window.getPhotoShareJwtToken === 'function') {
+            jwtToken = await window.getPhotoShareJwtToken();
+            console.log('🔐 JWT token obtained for AutoUpload using getPhotoShareJwtToken');
+          } else if (window.getJwtTokenForNativePlugin && typeof window.getJwtTokenForNativePlugin === 'function') {
+            jwtToken = await window.getJwtTokenForNativePlugin();
+            console.log('🔐 JWT token obtained for AutoUpload using getJwtTokenForNativePlugin (fallback)');
+          } else {
+            console.log('⚠️ No JWT token functions available');
+          }
+        } catch (jwtError) {
+          console.warn('⚠️ Could not get JWT token:', jwtError);
+        }
+        
+        const options = {
+          eventId: 'test_event_123'
+        };
+        
+        // Add JWT token if available
+        if (jwtToken) {
+          options.jwtToken = jwtToken;
+          console.log('🔐 Added JWT token to options');
+        }
+        
+        // Test with sample photo IDs for duplicate checking
+        options.photoIds = ['photo_device_001', 'photo_device_999', 'photo_device_003'];
+        
+        console.log('📊 Testing checkUploadedPhotos with options:', options);
+        const result = await plugin.checkUploadedPhotos(options);
+        console.log('✅ checkUploadedPhotos SUCCESS:', result);
+        
+        // Log detailed analysis
+        if (result.uploadedPhotos && result.photoHashMap) {
+          console.log('📋 Uploaded photos found:', result.uploadedPhotos.length);
+          console.log('🔍 Photo hash map keys:', Object.keys(result.photoHashMap));
+          console.log('📸 Checking for duplicates...');
+          
+          options.photoIds.forEach(photoId => {
+            const isDuplicate = result.photoHashMap[photoId];
+            console.log(`  📱 ${photoId}: ${isDuplicate ? '🔴 DUPLICATE' : '🟢 NEW'}`);
+          });
+        }
+        
+        return { success: true, result };
+      } catch (error) {
+        console.error('❌ checkUploadedPhotos test FAILED:', error);
+        return { success: false, error: error.message };
+      }
+    };
+
+    // Test AutoUpload flow automatically
+    window.testAutoUploadFlow = async function() {
+      console.log('🔧 ==================== AUTO UPLOAD FLOW TEST START ====================');
+      console.log('🔧 Testing AutoUpload plugin availability and basic functionality...');
+      
+      try {
+        // Check if AutoUpload plugin is available
+        if (!window.Capacitor?.Plugins?.AutoUpload) {
+          console.error('❌ AutoUpload plugin not found in Capacitor.Plugins');
+          console.log('📋 Available plugins:', Object.keys(window.Capacitor?.Plugins || {}));
+          return { success: false, error: 'AutoUpload plugin not found' };
+        }
+        
+        console.log('✅ AutoUpload plugin found');
+        
+        // Test getUserEvents
+        console.log('🧪 Testing getUserEvents...');
+        const result = await window.Capacitor.Plugins.AutoUpload.getUserEvents({});
+        
+        console.log('✅ getUserEvents completed');
+        console.log('📊 Result:', result);
+        
+        if (result.events && Array.isArray(result.events)) {
+          console.log(`📋 Found ${result.events.length} events`);
+          result.events.forEach((event, index) => {
+            console.log(`  📅 Event ${index + 1}: ${event.name || 'Unnamed'} (ID: ${event.id || 'No ID'})`);
+          });
+        } else {
+          console.log('📋 No events array in result');
+        }
+        
+        console.log('🔧 ==================== AUTO UPLOAD FLOW TEST SUCCESS ====================');
+        return { success: true, result };
+        
+      } catch (error) {
+        console.error('❌ AutoUpload flow test FAILED:', error);
+        console.log('🔧 ==================== AUTO UPLOAD FLOW TEST FAILED ====================');
+        return { success: false, error: error.message };
+      }
+    };
+
+    // Test overlay manually
+    window.testScanningOverlay = function() {
+        console.log('🧪 Manual scanning overlay test...');
+        
+        try {
+            // Create a very simple overlay
+            let overlay = document.getElementById('testOverlay');
+            if (overlay) {
+                overlay.remove();
+            }
+            
+            overlay = document.createElement('div');
+            overlay.id = 'testOverlay';
+            overlay.style.position = 'fixed';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.width = '100%';
+            overlay.style.height = '100%';
+            overlay.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+            overlay.style.display = 'flex';
+            overlay.style.justifyContent = 'center';
+            overlay.style.alignItems = 'center';
+            overlay.style.zIndex = '99999';
+            overlay.style.color = 'white';
+            overlay.style.fontSize = '24px';
+            overlay.textContent = 'TEST OVERLAY - Tap to dismiss';
+            
+            overlay.onclick = () => overlay.remove();
+            
+            document.body.appendChild(overlay);
+            console.log('✅ Test overlay created - should show red overlay');
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                if (overlay.parentNode) {
+                    overlay.remove();
+                    console.log('🧹 Test overlay auto-removed after 5 seconds');
+                }
+            }, 5000);
+            
+        } catch (error) {
+            console.error('❌ Test overlay failed:', error);
+            alert('Test overlay failed: ' + error.message);
+        }
+    };
+
     // Expose debugging functions
     window.PhotoShareDebug = {
       isNative: () => isNativeApp,
@@ -240,6 +403,9 @@
       testPhotoPicker: () => window.testPhotoPicker?.(),
       testSimplePlugin: () => window.testSimplePlugin?.(),
       testFCMExtension: () => window.testFCMExtension?.(),
+      testAutoUpload: () => window.testAutoUpload?.(),
+      testGetUserEvents: () => window.testGetUserEvents?.(),
+      testCheckUploadedPhotos: () => window.testCheckUploadedPhotos?.(),
       listPlugins: () => {
         console.log('📋 Available Capacitor plugins:');
         console.log(Object.keys(window.Capacitor?.Plugins || {}));

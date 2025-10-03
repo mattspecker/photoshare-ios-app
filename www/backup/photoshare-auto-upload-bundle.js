@@ -23,7 +23,7 @@ console.log('🚀 PhotoShare Auto-Upload Bundle loading...');
         upload: {
             maxFileSize: 50 * 1024 * 1024, // 50MB
             supportedFormats: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-            apiEndpoint: '/functions/v1/mobile-upload'
+            apiEndpoint: '/functions/v1/multipart-upload'
         },
         network: {
             qualityByConnection: {
@@ -250,38 +250,66 @@ console.log('🚀 PhotoShare Auto-Upload Bundle loading...');
                 throw new Error('Supabase client not available');
             }
 
-            // Prepare upload data
-            const uploadData = {
-                event_id: uploadItem.eventId,
-                file_data: uploadItem.photoData.base64Data || uploadItem.photoData.data,
-                file_name: uploadItem.photoData.filename || `photo_${Date.now()}.jpg`,
-                file_type: 'photo',
-                mime_type: uploadItem.photoData.mimeType || 'image/jpeg',
-                file_size: uploadItem.photoData.fileSize || 0,
-                created_at: uploadItem.photoData.createdAt || new Date().toISOString(),
-                device_info: {
-                    platform: Platform.isIOS() ? 'ios' : Platform.isAndroid() ? 'android' : 'web',
-                    model: uploadItem.photoData.deviceInfo?.model || 'Unknown',
-                    upload_method: 'auto-upload'
+            // Get the current session for auth token
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.access_token) {
+                throw new Error('No valid session token');
+            }
+
+            // Convert base64 to blob if needed
+            let fileBlob;
+            const base64Data = uploadItem.photoData.base64 || uploadItem.photoData.base64Data || uploadItem.photoData.data;
+            
+            if (base64Data) {
+                // Remove data URL prefix if present
+                const base64Clean = base64Data.replace(/^data:image\/\w+;base64,/, '');
+                
+                // Convert base64 to blob
+                const byteCharacters = atob(base64Clean);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
                 }
-            };
-
-            // Generate hash for deduplication
-            if (uploadData.file_data) {
-                uploadData.sha256_hash = await Utils.generateSHA256(uploadData.file_data);
+                const byteArray = new Uint8Array(byteNumbers);
+                fileBlob = new Blob([byteArray], { type: uploadItem.photoData.mimeType || 'image/jpeg' });
+            } else {
+                throw new Error('No image data to upload');
             }
 
-            // Upload to Supabase
-            const { data, error } = await supabase
-                .from('mobile_uploads')
-                .insert([uploadData])
-                .select();
-
-            if (error) {
-                throw new Error(`Upload failed: ${error.message}`);
+            // Create FormData for multipart upload
+            const formData = new FormData();
+            formData.append('file', fileBlob, uploadItem.photoData.filename || `photo_${Date.now()}.jpg`);
+            formData.append('eventId', uploadItem.eventId);
+            
+            // Add optional fields if available
+            if (uploadItem.photoData.deviceId) {
+                formData.append('deviceId', uploadItem.photoData.deviceId);
+            }
+            if (uploadItem.photoData.creationDate || uploadItem.photoData.createdAt) {
+                const timestamp = uploadItem.photoData.creationDate || uploadItem.photoData.createdAt;
+                formData.append('originalTimestamp', new Date(timestamp * 1000).toISOString());
             }
 
-            return data[0];
+            // Upload using multipart endpoint
+            const uploadUrl = `${CONFIG.supabase.url}${CONFIG.upload.apiEndpoint}`;
+            Utils.log(`🔗 Upload URL: ${uploadUrl}`);
+            Utils.log(`📝 Config check - supabase.url: ${CONFIG.supabase.url}, apiEndpoint: ${CONFIG.upload.apiEndpoint}`);
+            const response = await fetch(uploadUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${session.access_token}`
+                    // Don't set Content-Type - let browser set it with boundary
+                },
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Upload failed: ${errorText}`);
+            }
+
+            const result = await response.json();
+            return result;
         }
 
         getStats() {

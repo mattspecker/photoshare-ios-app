@@ -30,8 +30,9 @@ public class UploadStatusOverlay: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - Plugin Methods
     @objc func showOverlay(_ call: CAPPluginCall) {
+        let title = call.getString("title") ?? "Uploading Photos"
         DispatchQueue.main.async {
-            self.showUploadOverlay()
+            self.showUploadOverlay(title: title)
             call.resolve()
         }
     }
@@ -46,9 +47,10 @@ public class UploadStatusOverlay: CAPPlugin, CAPBridgedPlugin {
     @objc func updateProgress(_ call: CAPPluginCall) {
         let completed = call.getInt("completed") ?? 0
         let total = call.getInt("total") ?? 0
+        let title = call.getString("title") ?? "Uploading Photos"
         
         DispatchQueue.main.async {
-            self.updateOverlayProgress(completed: completed, total: total)
+            self.updateOverlayProgress(completed: completed, total: total, title: title)
             call.resolve()
         }
     }
@@ -69,7 +71,7 @@ public class UploadStatusOverlay: CAPPlugin, CAPBridgedPlugin {
     }
     
     // MARK: - Native Overlay Management
-    private func showUploadOverlay() {
+    private func showUploadOverlay(title: String = "Uploading Photos") {
         guard let webView = self.bridge?.webView else {
             print("❌ No webView available for overlay")
             return
@@ -90,7 +92,7 @@ public class UploadStatusOverlay: CAPPlugin, CAPBridgedPlugin {
         
         // Create header label with white text
         let headerLabel = UILabel()
-        headerLabel.text = "Uploading Photos (0/0)"
+        headerLabel.text = title
         headerLabel.font = UIFont.boldSystemFont(ofSize: 16)
         headerLabel.textColor = .white
         headerLabel.textAlignment = .center
@@ -186,18 +188,22 @@ public class UploadStatusOverlay: CAPPlugin, CAPBridgedPlugin {
         print("✅ Upload status overlay hidden")
     }
     
-    private func updateOverlayProgress(completed: Int, total: Int) {
+    private func updateOverlayProgress(completed: Int, total: Int, title: String = "Uploading Photos") {
         completedCount = completed
         totalCount = total
         
-        // Update header text
-        headerLabel?.text = "Uploading Photos (\(completed)/\(total))"
+        // Update header text with custom title
+        if total > 0 {
+            headerLabel?.text = "\(title) (\(completed)/\(total))"
+        } else {
+            headerLabel?.text = title
+        }
         
         // Update progress bar
         let progress = total > 0 ? Float(completed) / Float(total) : 0.0
         progressView?.progress = progress
         
-        print("📊 Overlay progress updated: \(completed)/\(total) (\(Int(progress * 100))%)")
+        print("📊 Overlay progress updated: \(title) \(completed)/\(total) (\(Int(progress * 100))%)")
     }
     
     private func setCurrentThumbnail(image: UIImage) {

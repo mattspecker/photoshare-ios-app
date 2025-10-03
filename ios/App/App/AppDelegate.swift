@@ -3,6 +3,7 @@ import Capacitor
 import FirebaseCore
 import GoogleSignIn
 import WebKit
+import UserNotifications
 
 // Explicitly import plugin classes (force compilation)
 // These should be automatically available since they're in the same module
@@ -17,6 +18,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Override point for customization after application launch.
         FirebaseApp.configure()
         
+        // Configure notification center for rich notifications
+        UNUserNotificationCenter.current().delegate = self
+        print("✅ UNUserNotificationCenter delegate configured for rich notifications")
         
         // Debug plugin registration
         print("🔍 AppDelegate: App launching with custom plugins")
@@ -27,6 +31,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = UploadManager.self
         _ = PhotoLibraryMonitor.self
         _ = QRScanner.self
+        _ = AppPermissionPlugin.self
+        _ = PhotoEditorPlugin.self
+        _ = AutoUploadPlugin.self
+        _ = UploadStatusOverlay.self
+        _ = CustomCameraPlugin.self
         print("✅ Custom plugin classes loaded for packageClassList discovery")
         
         // Debug Firebase configuration
@@ -780,6 +789,56 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             }
         }
     }
-    
+}
 
+// MARK: - UNUserNotificationCenterDelegate for Rich Notifications
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    
+    // Handle notifications when app is in foreground
+    func userNotificationCenter(_ center: UNUserNotificationCenter, 
+                              willPresent notification: UNNotification, 
+                              withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        
+        print("🔔 Received notification in foreground: \(notification.request.content.title)")
+        print("🔔 Notification body: \(notification.request.content.body)")
+        print("🔔 Notification attachments: \(notification.request.content.attachments.count)")
+        
+        // Log attachment details
+        for (index, attachment) in notification.request.content.attachments.enumerated() {
+            print("🖼️ Attachment \(index): \(attachment.identifier) - \(attachment.url.lastPathComponent)")
+        }
+        
+        // Show notification even when app is in foreground (important for rich notifications)
+        completionHandler([.alert, .badge, .sound])
+    }
+    
+    // Handle notification tap
+    func userNotificationCenter(_ center: UNUserNotificationCenter, 
+                              didReceive response: UNNotificationResponse, 
+                              withCompletionHandler completionHandler: @escaping () -> Void) {
+        
+        print("👆 User tapped notification: \(response.notification.request.content.title)")
+        print("👆 Notification attachments tapped: \(response.notification.request.content.attachments.count)")
+        
+        // Handle notification tap (navigate to specific screen, etc.)
+        let userInfo = response.notification.request.content.userInfo
+        
+        // Extract event_id or other data for navigation
+        if let eventId = userInfo["event_id"] as? String {
+            print("📱 Notification contains event_id: \(eventId)")
+            // TODO: Navigate to specific event screen
+        }
+        
+        // Forward to Capacitor/JavaScript if needed
+        NotificationCenter.default.post(name: .capacitorDidReceiveNotificationResponse, object: userInfo)
+        
+        completionHandler()
+    }
+}
+
+// MARK: - Notification Name Extension
+
+extension Notification.Name {
+    static let capacitorDidReceiveNotificationResponse = Notification.Name("capacitorDidReceiveNotificationResponse")
 }

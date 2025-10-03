@@ -308,12 +308,249 @@ class EventPhotoPickerIntegration {
         };
     }
     
+    // Background Upload Integration
+    /**
+     * Open EventPhotoPicker and automatically start background upload
+     */
+    async openPhotoPickerWithBackgroundUpload(options = {}) {
+        console.log('📤 Opening EventPhotoPicker with background upload...');
+        
+        try {
+            // First open the photo picker
+            const pickerResult = await this.openPhotoPicker(options);
+            
+            if (!pickerResult.photos || pickerResult.photos.length === 0) {
+                console.log('📸 No photos selected, skipping upload');
+                return pickerResult;
+            }
+            
+            console.log(`📤 Starting background upload for ${pickerResult.photos.length} selected photos`);
+            
+            // Start background upload for selected photos
+            const uploadResults = await this.startBackgroundUploadForPhotos(
+                pickerResult.photos, 
+                options.eventId || this.extractEventId(),
+                options
+            );
+            
+            return {
+                ...pickerResult,
+                uploadResults: uploadResults,
+                backgroundUploadStarted: true
+            };
+            
+        } catch (error) {
+            console.error('❌ Photo picker with background upload failed:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Start background upload for EventPhotoPicker photos
+     */
+    async startBackgroundUploadForPhotos(photos, eventId, options = {}) {
+        console.log(`📤 Starting background upload for ${photos.length} photos to event ${eventId}`);
+        
+        if (!window.backgroundUploadService) {
+            console.error('❌ Background upload service not available');
+            throw new Error('Background upload service not initialized');
+        }
+        
+        try {
+            // Convert EventPhotoPicker photos to background upload format
+            const uploadPhotos = photos.map((photo, index) => ({
+                id: photo.localIdentifier || `event_photo_${index}`,
+                filename: `event_photo_${index + 1}.jpg`,
+                base64: photo.base64,
+                path: null, // Will be converted to temp file by upload service
+                date: photo.creationDate ? new Date(photo.creationDate * 1000) : new Date(),
+                location: photo.location,
+                width: photo.width,
+                height: photo.height,
+                fileSize: photo.base64 ? Math.floor(photo.base64.length * 0.75) : 0
+            }));
+            
+            // Start background uploads
+            const uploadResults = await window.backgroundUploadService.startEventPhotoUpload(
+                uploadPhotos, 
+                eventId,
+                {
+                    notificationTitle: options.notificationTitle || 'Uploading Event Photos',
+                    maxRetries: options.maxRetries || 3
+                }
+            );
+            
+            console.log(`✅ Background upload started for ${uploadResults.filter(r => r.status === 'uploading').length}/${photos.length} photos`);
+            
+            // Set up progress monitoring
+            this.setupUploadProgressMonitoring();
+            
+            return uploadResults;
+            
+        } catch (error) {
+            console.error('❌ Failed to start background upload:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Start background upload for cropped image from PhotoEditor
+     */
+    async startBackgroundUploadForCroppedImage(croppedImagePath, eventId, cropType, options = {}) {
+        console.log(`📤 Starting background upload for cropped ${cropType} image`);
+        
+        if (!window.backgroundUploadService) {
+            console.error('❌ Background upload service not available');
+            throw new Error('Background upload service not initialized');
+        }
+        
+        try {
+            const uploadResult = await window.backgroundUploadService.startCroppedImageUpload(
+                croppedImagePath,
+                eventId,
+                cropType,
+                {
+                    notificationTitle: options.notificationTitle || `Uploading ${cropType} image`,
+                    maxRetries: options.maxRetries || 3
+                }
+            );
+            
+            console.log(`✅ Background upload started for cropped ${cropType} image`);
+            
+            // Set up progress monitoring
+            this.setupUploadProgressMonitoring();
+            
+            return uploadResult;
+            
+        } catch (error) {
+            console.error('❌ Failed to start background upload for cropped image:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Set up upload progress monitoring and event handling
+     */
+    setupUploadProgressMonitoring() {
+        // Remove existing listeners to avoid duplicates
+        window.removeEventListener('fileTransferProgress', this.handleUploadProgress);
+        window.removeEventListener('fileTransferUploadComplete', this.handleUploadComplete);
+        window.removeEventListener('fileTransferUploadFailed', this.handleUploadFailed);
+        
+        // Add new listeners for @capacitor/file-transfer events
+        window.addEventListener('fileTransferProgress', this.handleUploadProgress.bind(this));
+        window.addEventListener('fileTransferUploadComplete', this.handleUploadComplete.bind(this));
+        window.addEventListener('fileTransferUploadFailed', this.handleUploadFailed.bind(this));
+        
+        console.log('✅ Upload progress monitoring set up for @capacitor/file-transfer');
+    }
+    
+    /**
+     * Handle upload progress events
+     */
+    handleUploadProgress(event) {
+        const { uploadId, filename, progress, loaded, total, eventId, cropType } = event.detail;
+        console.log(`📊 Upload progress: ${filename} - ${progress}% (${loaded}/${total} bytes)`);
+        
+        // Dispatch custom event for UI updates
+        window.dispatchEvent(new CustomEvent('eventPhotoUploadProgress', {
+            detail: {
+                uploadId,
+                filename,
+                progress,
+                loaded,
+                total,
+                eventId,
+                cropType,
+                source: 'EventPhotoPicker'
+            }
+        }));
+    }
+    
+    /**
+     * Handle upload completion events
+     */
+    handleUploadComplete(event) {
+        const { uploadId, filename, statusCode, eventId, duration, cropType } = event.detail;
+        console.log(`✅ Upload completed: ${filename} (${statusCode}) in ${duration}ms`);
+        
+        // Show success notification
+        if (window.showToast) {
+            window.showToast(`✅ ${filename} uploaded successfully`, 'success');
+        }
+        
+        // Dispatch custom event
+        window.dispatchEvent(new CustomEvent('eventPhotoUploadComplete', {
+            detail: {
+                uploadId,
+                filename,
+                statusCode,
+                eventId,
+                duration,
+                cropType,
+                source: 'EventPhotoPicker'
+            }
+        }));
+    }
+    
+    /**
+     * Handle upload failure events
+     */
+    handleUploadFailed(event) {
+        const { uploadId, filename, error, eventId, cropType } = event.detail;
+        console.error(`❌ Upload failed: ${filename} - ${error}`);
+        
+        // Show error notification
+        if (window.showToast) {
+            window.showToast(`❌ Upload failed: ${filename}`, 'error');
+        }
+        
+        // Dispatch custom event
+        window.dispatchEvent(new CustomEvent('eventPhotoUploadFailed', {
+            detail: {
+                uploadId,
+                filename,
+                error,
+                eventId,
+                cropType,
+                source: 'EventPhotoPicker'
+            }
+        }));
+    }
+    
+    /**
+     * Get upload status from background service
+     */
+    getUploadStatus() {
+        if (window.backgroundUploadService) {
+            return window.backgroundUploadService.getUploadStatus();
+        }
+        return { active: 0, completed: 0, failed: 0, uploads: [] };
+    }
+    
+    /**
+     * Cancel active uploads
+     */
+    async cancelAllUploads() {
+        if (window.backgroundUploadService) {
+            return await window.backgroundUploadService.cancelAllUploads();
+        }
+        return { cancelled: 0, total: 0 };
+    }
+
     // Status Methods
     getStatus() {
+        const uploadStatus = this.getUploadStatus();
+        
         return {
             isNativeApp: this.isNativeApp,
             isReady: this.isReady,
-            pluginAvailable: !!window.Capacitor?.Plugins?.EventPhotoPicker
+            pluginAvailable: !!window.Capacitor?.Plugins?.EventPhotoPicker,
+            fileTransferAvailable: !!window.Capacitor?.Plugins?.FileTransfer,
+            backgroundUploadAvailable: !!window.backgroundUploadService,
+            activeUploads: uploadStatus.active,
+            completedUploads: uploadStatus.completed,
+            failedUploads: uploadStatus.failed
         };
     }
 }
@@ -323,6 +560,31 @@ const eventPhotoPickerApp = new EventPhotoPickerIntegration();
 
 // Make available globally
 window.EventPhotoPickerApp = eventPhotoPickerApp;
+
+// Convenient global functions for easy integration
+window.openEventPhotoPicker = async (options) => {
+    return await eventPhotoPickerApp.openPhotoPicker(options);
+};
+
+window.openEventPhotoPickerWithUpload = async (options) => {
+    return await eventPhotoPickerApp.openPhotoPickerWithBackgroundUpload(options);
+};
+
+window.startEventPhotoUpload = async (photos, eventId, options) => {
+    return await eventPhotoPickerApp.startBackgroundUploadForPhotos(photos, eventId, options);
+};
+
+window.startCroppedImageUploadToEvent = async (croppedImagePath, eventId, cropType, options) => {
+    return await eventPhotoPickerApp.startBackgroundUploadForCroppedImage(croppedImagePath, eventId, cropType, options);
+};
+
+window.getEventPhotoUploadStatus = () => {
+    return eventPhotoPickerApp.getUploadStatus();
+};
+
+window.cancelAllEventPhotoUploads = async () => {
+    return await eventPhotoPickerApp.cancelAllUploads();
+};
 
 // Auto-setup camera override after page loads
 if (window.EventPhotoPickerApp.isNativeApp) {

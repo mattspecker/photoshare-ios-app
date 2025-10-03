@@ -28,12 +28,29 @@
     "PushNotifications": {
       "presentationOptions": ["badge", "sound", "alert"]
     },
+    "App": {},
+    "Device": {},
+    "Dialog": {},
+    "Filesystem": {},
+    "Haptics": {},
+    "Keyboard": {
+      "resize": "body",
+      "style": "dark"
+    },
+    "Preferences": {},
+    "AppleSignIn": {},
+    "DatePicker": {},
+    "PhotoViewer": {},
+    "FileTransfer": {},
     "EventPhotoPicker": {},
     "UploadManager": {},
     "PhotoLibraryMonitor": {},
     "QRScanner": {},
     "AppPermissionPlugin": {},
-    "PhotoEditorPlugin": {}
+    "PhotoEditorPlugin": {},
+    "AutoUploadPlugin": {},
+    "UploadStatusOverlay": {},
+    "CustomCameraPlugin": {}
   },
   "ios": {
     "scheme": "App",
@@ -47,20 +64,26 @@
     "PhotoViewerPlugin",
     "FirebaseAppPlugin",
     "FirebaseAuthenticationPlugin",
+    "FirebaseMessagingPlugin",
     "AppPlugin",
     "CAPCameraPlugin",
     "DevicePlugin",
+    "DialogPlugin",
+    "FileTransferPlugin",
     "FilesystemPlugin",
     "HapticsPlugin",
     "KeyboardPlugin",
     "PreferencesPlugin",
+    "PushNotificationsPlugin",
     "StatusBarPlugin",
-    "DialogPlugin",
     "EventPhotoPicker",
     "UploadManager",
     "PhotoLibraryMonitor",
     "QRScanner",
     "AppPermissionPlugin",
-    "PhotoEditorPlugin"
+    "PhotoEditorPlugin",
+    "AutoUploadPlugin",
+    "UploadStatusOverlay",
+    "CustomCameraPlugin"
   ]
 }

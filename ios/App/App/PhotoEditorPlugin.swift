@@ -80,30 +80,87 @@ public class PhotoEditorPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        // Create and present the photo editor
-        let editorVC = PhotoEditorViewController(image: image, originalPath: cleanPath)
-        editorVC.completion = { [weak self] result in
-            DispatchQueue.main.async {
-                if let editedPath = result.editedPath {
-                    print("✅ Photo editing completed: \(editedPath)")
-                    call.resolve([
-                        "success": true,
-                        "message": "Photo edited successfully",
-                        "originalPath": imagePath,
-                        "editedPath": "file://\(editedPath)",
-                        "changes": result.changes
-                    ])
-                } else {
-                    print("⚠️ Photo editing cancelled")
-                    call.reject("Photo editing cancelled")
+        // Check if this is a crop mode request
+        let mode = call.getString("mode") ?? "edit"
+        let cropType = call.getString("cropType")
+        
+        if mode == "crop" && (cropType == "header" || cropType == "qr") {
+            print("🎨 ✂️ Launching crop editor for \(cropType ?? "unknown") type")
+            
+            // Create and present the crop editor
+            let cropVC = CropEditorViewController(image: image, cropType: cropType ?? "header")
+            cropVC.completion = { result in
+                DispatchQueue.main.async {
+                    if let croppedImage = result.croppedImage {
+                        // Save the cropped image
+                        let timestamp = Int(Date().timeIntervalSince1970)
+                        let filename = "\(cropType ?? "cropped")_\(timestamp).jpg"
+                        let tempDir = FileManager.default.temporaryDirectory
+                        let tempFile = tempDir.appendingPathComponent(filename)
+                        
+                        if let jpegData = croppedImage.jpegData(compressionQuality: 0.9) {
+                            do {
+                                try jpegData.write(to: tempFile)
+                                let croppedPath = tempFile.path
+                                
+                                print("✅ Crop completed: \(croppedPath)")
+                                call.resolve([
+                                    "success": true,
+                                    "message": "Image cropped successfully",
+                                    "originalPath": imagePath,
+                                    "editedPath": "file://\(croppedPath)",
+                                    "cropType": cropType ?? "unknown",
+                                    "wasCropped": true
+                                ])
+                            } catch {
+                                print("❌ Failed to save cropped image: \(error)")
+                                call.reject("Failed to save cropped image")
+                            }
+                        } else {
+                            call.reject("Failed to convert cropped image to JPEG")
+                        }
+                    } else {
+                        print("⚠️ Crop cancelled")
+                        call.reject("Crop cancelled")
+                    }
                 }
             }
-        }
-        
-        // Present full-screen
-        editorVC.modalPresentationStyle = .fullScreen
-        viewController.present(editorVC, animated: true) {
-            print("✅ Photo editor presented")
+            
+            // Present the crop editor
+            cropVC.modalPresentationStyle = .fullScreen
+            viewController.present(cropVC, animated: true) {
+                print("✅ Crop editor presented")
+            }
+            
+        } else {
+            // Regular photo editor mode
+            print("🎨 Launching full photo editor")
+            
+            // Create and present the photo editor
+            let editorVC = PhotoEditorViewController(image: image, originalPath: cleanPath)
+            editorVC.completion = { [weak self] result in
+                DispatchQueue.main.async {
+                    if let editedPath = result.editedPath {
+                        print("✅ Photo editing completed: \(editedPath)")
+                        call.resolve([
+                            "success": true,
+                            "message": "Photo edited successfully",
+                            "originalPath": imagePath,
+                            "editedPath": "file://\(editedPath)",
+                            "changes": result.changes
+                        ])
+                    } else {
+                        print("⚠️ Photo editing cancelled")
+                        call.reject("Photo editing cancelled")
+                    }
+                }
+            }
+            
+            // Present full-screen
+            editorVC.modalPresentationStyle = .fullScreen
+            viewController.present(editorVC, animated: true) {
+                print("✅ Photo editor presented")
+            }
         }
     }
 }

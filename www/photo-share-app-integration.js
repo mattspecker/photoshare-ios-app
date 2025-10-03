@@ -48,16 +48,22 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
                 // Always add event info display for debugging
                 this.addEventInfoDisplay();
                 
+                // Hook into PhotoEditor for crop tool upload integration  
+                this.hookIntoPhotoEditor();
+                
+                // Do NOT hook into Camera.getPhoto - let website work normally
+                
                 if (this.eventPhotoPicker) {
                     console.log('✅ Event Photo Picker plugin detected');
                     
-                    // Hook into existing upload functionality
+                    // Hook into existing upload functionality (pickImages and other hooks)
                     this.hookIntoUploadFlow();
                     
                     this.isInitialized = true;
                     console.log('✅ Event Photo Picker integration ready');
                 } else {
-                    console.warn('⚠️ Event Photo Picker plugin not available - using standard upload');
+                    console.warn('⚠️ Event Photo Picker plugin not available - crop functionality still enabled');
+                    this.isInitialized = true;
                 }
             } catch (error) {
                 console.error('❌ Error initializing Event Photo Picker:', error);
@@ -83,6 +89,9 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
         hookIntoUploadFlow() {
             // PRIMARY: Override CapacitorCameraLib.pickImages() - this is the main target
             this.hookIntoCapacitorCamera();
+
+            // NEW: Override Camera.getPhoto() - for direct Capacitor Camera calls
+            this.hookIntoCapacitorCameraGetPhoto();
 
             // NEW: Override selectPhotosFromGallery() - for photo-share.app website
             this.hookIntoSelectPhotosFromGallery();
@@ -179,6 +188,94 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
                 setTimeout(() => {
                     clearInterval(checkInterval);
                     console.warn('⚠️ CapacitorCameraLib.pickImages not found after 10 seconds');
+                }, 10000);
+            }
+        }
+
+        /**
+         * Hook into Camera.getPhoto() - for direct Capacitor Camera plugin calls
+         */
+        hookIntoCapacitorCameraGetPhoto() {
+            console.log('🔗 Setting up Camera.getPhoto override...');
+            
+            const setupCameraHook = () => {
+                const camera = window.Capacitor?.Plugins?.Camera;
+                
+                if (camera && camera.getPhoto) {
+                    console.log('🎯 Found Camera.getPhoto - installing override');
+                    
+                    // Store original function
+                    this.originalGetPhoto = camera.getPhoto.bind(camera);
+                    
+                    // Override with our handler
+                    camera.getPhoto = this.enhancedGetPhoto.bind(this);
+                    
+                    console.log('✅ Camera.getPhoto successfully overridden');
+                    return true;
+                } else {
+                    console.log('❌ Camera.getPhoto not found');
+                    return false;
+                }
+            };
+            
+            // Try immediately
+            if (!setupCameraHook()) {
+                // If not available, check periodically
+                const checkInterval = setInterval(() => {
+                    console.log('🔍 Checking for Camera.getPhoto...');
+                    if (setupCameraHook()) {
+                        clearInterval(checkInterval);
+                    }
+                }, 500);
+                
+                // Stop checking after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    console.warn('⚠️ Camera.getPhoto not found after 10 seconds');
+                }, 10000);
+            }
+        }
+
+        /**
+         * Hook into PhotoEditorPlugin.editPhoto() - for crop tool upload integration
+         */
+        hookIntoPhotoEditor() {
+            console.log('🔗 Setting up PhotoEditor.editPhoto override...');
+            
+            const setupPhotoEditorHook = () => {
+                const photoEditor = window.Capacitor?.Plugins?.PhotoEditorPlugin;
+                
+                if (photoEditor && photoEditor.editPhoto) {
+                    console.log('🎯 Found PhotoEditorPlugin.editPhoto - installing upload integration');
+                    
+                    // Store original function
+                    this.originalEditPhoto = photoEditor.editPhoto.bind(photoEditor);
+                    
+                    // Override with our handler that adds upload integration
+                    photoEditor.editPhoto = this.enhancedEditPhoto.bind(this);
+                    
+                    console.log('✅ PhotoEditorPlugin.editPhoto successfully overridden');
+                    return true;
+                } else {
+                    console.log('❌ PhotoEditorPlugin.editPhoto not found');
+                    return false;
+                }
+            };
+            
+            // Try immediately
+            if (!setupPhotoEditorHook()) {
+                // If not available, check periodically
+                const checkInterval = setInterval(() => {
+                    console.log('🔍 Checking for PhotoEditorPlugin.editPhoto...');
+                    if (setupPhotoEditorHook()) {
+                        clearInterval(checkInterval);
+                    }
+                }, 500);
+                
+                // Stop checking after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    console.warn('⚠️ PhotoEditorPlugin.editPhoto not found after 10 seconds');
                 }, 10000);
             }
         }
@@ -365,6 +462,164 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
         }
 
         /**
+         * Enhanced editPhoto function that adds upload integration after cropping
+         */
+        async enhancedEditPhoto(options = {}) {
+            console.log('🎯🎯🎯 ENHANCED EDIT PHOTO CALLED! 🎯🎯🎯');
+            console.log('📸 PhotoEditorPlugin.editPhoto intercepted with options:', JSON.stringify(options, null, 2));
+            console.log('🔍 This means the website IS calling PhotoEditorPlugin.editPhoto - crop tool working!');
+            
+            try {
+                // Call the original editPhoto function
+                const editResult = await this.originalEditPhoto(options);
+                console.log('✅ PhotoEditor completed:', editResult);
+                
+                // Check if this was a crop operation and upload the result
+                if (editResult.success && editResult.editedPath) {
+                    // Determine if this was a header or QR crop based on the options or result
+                    const cropType = options.cropType || 
+                        (editResult.cropType) ||
+                        (editResult.wasCropped ? 'header' : null); // default to header if cropped
+                    
+                    if (cropType === 'header' || cropType === 'qr') {
+                        console.log(`📤 Crop completed for ${cropType}, starting upload...`);
+                        
+                        // Get current event context
+                        const eventData = this.getCurrentEventData();
+                        
+                        if (eventData.eventId && window.startCroppedImageUploadToEvent) {
+                            console.log(`📤 Starting upload of cropped ${cropType} image to event ${eventData.eventId}`);
+                            
+                            // Start background upload of cropped image
+                            await window.startCroppedImageUploadToEvent(
+                                editResult.editedPath,
+                                eventData.eventId,
+                                cropType,
+                                { notificationTitle: `Uploading ${cropType} image` }
+                            );
+                            
+                            console.log(`✅ ${cropType} image upload initiated`);
+                        } else {
+                            console.log('⚠️ No event context or upload function available');
+                        }
+                    } else {
+                        console.log('📸 Regular photo edit (not crop), no automatic upload');
+                    }
+                }
+                
+                return editResult;
+                
+            } catch (error) {
+                console.error('❌ Enhanced editPhoto error:', error);
+                
+                // If our enhanced flow fails, fall back to original
+                console.log('🔄 Falling back to original PhotoEditor.editPhoto...');
+                return await this.originalEditPhoto(options);
+            }
+        }
+
+        /**
+         * Enhanced getPhoto function that handles header/QR crop workflow
+         */
+        async enhancedGetPhoto(options = {}) {
+            console.log('🎯🎯🎯 ENHANCED GET PHOTO CALLED! 🎯🎯🎯');
+            console.log('📸 Camera.getPhoto intercepted:', options);
+            
+            try {
+                // Check if this is for header or QR by looking at promptLabelHeader
+                const isHeaderRequest = options.promptLabelHeader && 
+                    (options.promptLabelHeader.toLowerCase().includes('header') ||
+                     options.promptLabelHeader.toLowerCase().includes('qr'));
+                
+                // Also check maxWidth/maxHeight hints for header (1920x480) or QR (512x512)
+                const isHeaderByDimensions = (options.maxWidth === 1920 && options.maxHeight === 480);
+                const isQRByDimensions = (options.maxWidth === 512 && options.maxHeight === 512);
+                
+                if (isHeaderRequest || isHeaderByDimensions || isQRByDimensions) {
+                    const cropType = isQRByDimensions ? 'qr' : 'header';
+                    console.log(`📷 ✂️ Photo selection for ${cropType} detected - routing to crop workflow`);
+                    
+                    // First, get the photo using original method
+                    const photoResult = await this.originalGetPhoto({
+                        ...options,
+                        allowEditing: false // We'll handle cropping ourselves
+                    });
+                    
+                    if (!photoResult || !photoResult.dataUrl) {
+                        console.log('❌ No photo selected');
+                        throw new Error('No photo selected');
+                    }
+                    
+                    console.log(`📸 Photo selected, launching ${cropType} crop tool...`);
+                    
+                    // Convert dataUrl to file for PhotoEditor
+                    const tempPath = await this.dataUrlToTempFile(photoResult.dataUrl, `temp_${cropType}_${Date.now()}.jpg`);
+                    
+                    // Launch the PhotoEditor crop tool
+                    if (window.Capacitor?.Plugins?.PhotoEditorPlugin) {
+                        const cropResult = await window.Capacitor.Plugins.PhotoEditorPlugin.editPhoto({
+                            imagePath: tempPath,
+                            cropType: cropType,
+                            mode: 'crop'
+                        });
+                        
+                        if (cropResult.success && cropResult.editedPath) {
+                            console.log(`✅ ${cropType} image cropped successfully`);
+                            
+                            // Get current event context for upload
+                            const eventData = this.getCurrentEventData();
+                            
+                            // Start upload of cropped image if we have an event
+                            if (eventData.eventId && window.startCroppedImageUploadToEvent) {
+                                console.log(`📤 Starting upload of cropped ${cropType} image to event ${eventData.eventId}`);
+                                await window.startCroppedImageUploadToEvent(
+                                    cropResult.editedPath,
+                                    eventData.eventId,
+                                    cropType,
+                                    { notificationTitle: `Uploading ${cropType} image` }
+                                );
+                            }
+                            
+                            // Convert cropped image back to dataUrl for return value
+                            const croppedDataUrl = await this.fileToDataUrl(cropResult.editedPath);
+                            
+                            // Return in expected Camera.getPhoto format
+                            return {
+                                ...photoResult,
+                                dataUrl: croppedDataUrl,
+                                saved: true,
+                                metadata: {
+                                    ...photoResult.metadata,
+                                    purpose: cropType,
+                                    wasEdited: true,
+                                    wasCropped: true
+                                }
+                            };
+                        } else {
+                            console.log('❌ Crop cancelled or failed');
+                            throw new Error('Crop cancelled');
+                        }
+                    } else {
+                        console.error('❌ PhotoEditorPlugin not available');
+                        // Fall back to original photo if crop tool not available
+                        return photoResult;
+                    }
+                }
+                
+                // For regular photos, use normal flow or EventPhotoPicker
+                console.log('📸 Regular photo request - using standard flow');
+                return await this.originalGetPhoto(options);
+                
+            } catch (error) {
+                console.error('❌ Enhanced getPhoto error:', error);
+                
+                // If our enhanced flow fails, fall back to original camera
+                console.log('🔄 Falling back to original Camera.getPhoto...');
+                return await this.originalGetPhoto(options);
+            }
+        }
+
+        /**
          * Enhanced pickImages function that uses Event Photo Picker
          */
         async enhancedPickImages(options = {}) {
@@ -442,6 +697,53 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
             };
             
             return formatMap[mimeType.toLowerCase()] || 'jpeg';
+        }
+
+        /**
+         * Convert dataUrl to temporary file for PhotoEditor
+         */
+        async dataUrlToTempFile(dataUrl, filename) {
+            try {
+                // Use Capacitor Filesystem to write the data
+                if (window.Capacitor?.Plugins?.Filesystem) {
+                    const base64Data = dataUrl.split(',')[1];
+                    
+                    const result = await window.Capacitor.Plugins.Filesystem.writeFile({
+                        path: filename,
+                        data: base64Data,
+                        directory: window.Capacitor.Plugins.Filesystem.Directory.Cache,
+                        encoding: window.Capacitor.Plugins.Filesystem.Encoding.UTF8
+                    });
+                    
+                    return result.uri;
+                } else {
+                    throw new Error('Filesystem plugin not available');
+                }
+            } catch (error) {
+                console.error('❌ Failed to convert dataUrl to temp file:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * Convert file path to dataUrl
+         */
+        async fileToDataUrl(filePath) {
+            try {
+                // Use Capacitor Filesystem to read the file
+                if (window.Capacitor?.Plugins?.Filesystem) {
+                    const result = await window.Capacitor.Plugins.Filesystem.readFile({
+                        path: filePath
+                    });
+                    
+                    return `data:image/jpeg;base64,${result.data}`;
+                } else {
+                    throw new Error('Filesystem plugin not available');
+                }
+            } catch (error) {
+                console.error('❌ Failed to convert file to dataUrl:', error);
+                throw error;
+            }
         }
 
         /**
@@ -961,6 +1263,22 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
          */
         async openEventPhotoPicker(eventData) {
             try {
+                // Try to get JWT token for the plugin (use standard PhotoShare function)
+                let jwtToken = null;
+                try {
+                    if (window.getPhotoShareJwtToken && typeof window.getPhotoShareJwtToken === 'function') {
+                        jwtToken = await window.getPhotoShareJwtToken();
+                        console.log('🔐 JWT token obtained for EventPhotoPicker using getPhotoShareJwtToken');
+                    } else if (window.getJwtTokenForNativePlugin && typeof window.getJwtTokenForNativePlugin === 'function') {
+                        jwtToken = await window.getJwtTokenForNativePlugin();
+                        console.log('🔐 JWT token obtained for EventPhotoPicker using getJwtTokenForNativePlugin (fallback)');
+                    } else {
+                        console.log('⚠️ No JWT token functions available (getPhotoShareJwtToken or getJwtTokenForNativePlugin)');
+                    }
+                } catch (jwtError) {
+                    console.warn('⚠️ Could not get JWT token:', jwtError);
+                }
+                
                 const options = {
                     eventId: eventData.eventId,
                     startDate: this.formatDateForIOS(eventData.startDate),
@@ -969,6 +1287,11 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
                     allowMultipleSelection: true,
                     title: `${eventData.eventName} Photos`
                 };
+                
+                // Add JWT token if available
+                if (jwtToken) {
+                    options.jwtToken = jwtToken;
+                }
                 
                 console.log('🚀 Opening Event Photo Picker:', options);
                 

@@ -95,5 +95,13 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>CapacitorPlugins</key>
+	<dict>
+		<key>EventPhotoPicker</key>
+		<dict>
+			<key>class</key>
+			<string>EventPhotoPicker</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

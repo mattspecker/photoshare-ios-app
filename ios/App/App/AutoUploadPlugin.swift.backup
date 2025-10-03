@@ -1,0 +1,1393 @@
+import Foundation
+import Photos
+import Capacitor
+import UIKit
+
+@objc(AutoUploadPlugin)
+public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "AutoUploadPlugin"
+    public let jsName = "AutoUpload"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "getUserEvents", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "checkUploadedPhotos", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "scanForPhotos", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "showScanningOverlay", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hideScanningOverlay", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "uploadPhotos", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getUploadProgress", returnType: CAPPluginReturnPromise)
+    ]
+    
+    // MARK: - Properties
+    private var uploadProgress: [String: Any] = [:]
+    
+    // MARK: - Plugin Lifecycle
+    override public func load() {
+        super.load()
+        NSLog("🚀 AutoUploadPlugin loaded successfully!")
+        NSLog("🚀 Available methods: getUserEvents, checkUploadedPhotos, scanForPhotos, showScanningOverlay, uploadPhotos, getUploadProgress")
+        
+        // Initialize upload progress tracking
+        initializeUploadProgress()
+        
+        // Listen for app resume events
+        setupAppResumeListener()
+    }
+    
+    /// Setup listener for app resume events
+    private func setupAppResumeListener() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NSLog("🔔 AutoUpload: App resume listener setup complete")
+    }
+    
+    /// Called when app becomes active (resume from background)
+    @objc private func appDidBecomeActive() {
+        NSLog("🔄 AutoUpload: App resumed - triggering auto Supabase token check")
+        Task {
+            await triggerAutoSupabaseTokenCheck()
+        }
+    }
+    
+    /// Automatically trigger Supabase token retrieval and logging
+    private func triggerAutoSupabaseTokenCheck() async {
+        NSLog("🔐 AutoUpload: Getting Supabase session token...")
+        
+        NSLog("🔍 AutoUpload: Checking webView availability...")
+        if bridge?.webView != nil {
+            NSLog("✅ WebView is available")
+        } else {
+            NSLog("❌ WebView is NOT available")
+            return
+        }
+        
+        // Give the page a moment to initialize before checking auth bridge
+        NSLog("⏳ Giving page time to initialize...")
+        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second initial delay
+        
+        // Use efficient polling to wait for auth bridge readiness
+        NSLog("⏳ Waiting for auth bridge to be ready...")
+        let authReady = await waitForAuthBridge(maxWaitSeconds: 15)
+        
+        if !authReady {
+            NSLog("❌ Auth bridge timeout - unable to get token")
+            return
+        }
+        
+        // Auth bridge is ready, get the token
+        NSLog("🔍 AutoUpload: Calling getSupabaseSessionData()...")
+        let (token, userId) = await getSupabaseSessionData()
+        
+        if let tokenValue = token, let userIdValue = userId {
+            NSLog("✅ Supabase token obtained")
+            NSLog("👤 User ID: \(userIdValue)")
+            NSLog("🔐 Token preview: \(String(tokenValue.prefix(20)))...")
+            NSLog("🎯 NEXT: Ready to call getUserEvents with Supabase token")
+        } else {
+            NSLog("❌ Failed to get Supabase token - auth bridge ready but no valid session")
+        }
+    }
+    
+    /// Wait for auth bridge to be ready with efficient polling
+    private func waitForAuthBridge(maxWaitSeconds: Int = 15) async -> Bool {
+        let startTime = Date()
+        let maxWait = TimeInterval(maxWaitSeconds)
+        
+        while Date().timeIntervalSince(startTime) < maxWait {
+            let isReady = await checkIfAuthBridgeReady()
+            
+            if isReady {
+                NSLog("✅ Auth bridge ready after \(String(format: "%.1f", Date().timeIntervalSince(startTime)))s")
+                return true
+            }
+            
+            // Wait 200ms before next check
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        
+        NSLog("⚠️ Auth bridge timeout after \(maxWaitSeconds)s")
+        return false
+    }
+    
+    /// Check if auth bridge is ready
+    private func checkIfAuthBridgeReady() async -> Bool {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                self.bridge?.webView?.evaluateJavaScript("""
+                    (function() {
+                        return window.isPhotoShareAuthReady ? window.isPhotoShareAuthReady() : false;
+                    })();
+                """) { result, error in
+                    continuation.resume(returning: (result as? Bool) ?? false)
+                }
+            }
+        }
+    }
+    
+    /// Check different ways Supabase might be available
+    private func checkSupabaseAvailability() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                self.bridge?.webView?.evaluateJavaScript("""
+                    (function() {
+                        console.log('🔍 Checking Supabase availability...');
+                        console.log('  - window.supabase:', !!window.supabase);
+                        console.log('  - window._supabase:', !!window._supabase);
+                        console.log('  - window.Supabase:', !!window.Supabase);
+                        console.log('  - localStorage sb-* keys:', 
+                            Object.keys(localStorage).filter(k => k.startsWith('sb-')));
+                        
+                        // Check if we can get token from localStorage directly
+                        const keys = Object.keys(localStorage).filter(k => k.includes('auth-token'));
+                        if (keys.length > 0) {
+                            console.log('  - Found auth-token keys:', keys);
+                            keys.forEach(key => {
+                                try {
+                                    const value = localStorage.getItem(key);
+                                    const parsed = JSON.parse(value);
+                                    if (parsed.access_token) {
+                                        console.log('  - Found access_token in', key);
+                                    }
+                                } catch (e) {}
+                            });
+                        }
+                        
+                        return true;
+                    })();
+                """) { _, _ in
+                    continuation.resume()
+                }
+            }
+        }
+    }
+    
+    // MARK: - Private Helper Methods
+    
+    /// Initialize upload progress with default values
+    private func initializeUploadProgress() {
+        uploadProgress = [
+            "autoUploadEnabled": false,
+            "backgroundUploadEnabled": false,
+            "wifiOnlyUploadEnabled": false,
+            "networkType": "unknown",
+            "isWiFiConnected": false,
+            "uploadInProgress": false,
+            "pendingUploads": 0,
+            "completedUploads": 0,
+            "failedUploads": 0,
+            "currentEventId": NSNull(),
+            "lastScanTime": NSNull(),
+            "scanInProgress": false
+        ]
+        
+        // Load saved preferences from UserDefaults
+        loadUploadProgress()
+    }
+    
+    /// Cleanup when plugin is unloaded
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        NSLog("🧹 AutoUpload: Cleanup complete")
+    }
+    
+    /// Load upload progress from UserDefaults (equivalent to Android SharedPreferences)
+    private func loadUploadProgress() {
+        let defaults = UserDefaults.standard
+        
+        // Load saved settings
+        if let savedProgress = defaults.object(forKey: "auto_upload_progress") as? [String: Any] {
+            for (key, value) in savedProgress {
+                uploadProgress[key] = value
+            }
+        }
+        
+        NSLog("📊 Loaded upload progress: \(uploadProgress)")
+    }
+    
+    /// Save upload progress to UserDefaults
+    private func saveUploadProgress() {
+        let defaults = UserDefaults.standard
+        defaults.set(uploadProgress, forKey: "auto_upload_progress")
+        defaults.synchronize()
+    }
+    
+    /// Parse event date as UTC (Critical Android lesson #1)
+    private func parseEventDateAsUTC(_ dateString: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        
+        // Try multiple date formats
+        let formats = [
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS"
+        ]
+        
+        for format in formats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: dateString) {
+                return date
+            }
+        }
+        
+        NSLog("⚠️ Failed to parse date: \(dateString)")
+        return nil
+    }
+    
+    // MARK: - Plugin Methods (Stubs - will implement one by one)
+    
+    @objc func getUserEvents(_ call: CAPPluginCall) {
+        NSLog("🔍 getUserEvents called")
+        NSLog("📦 Call parameters: \(call.options)")
+        
+        Task {
+            do {
+                // Get JWT token from JavaScript parameters (like EventPhotoPicker)
+                var jwtToken: String? = call.getString("jwtToken")
+                
+                if let token = jwtToken {
+                    NSLog("✅ JWT token received from JavaScript: \(token.prefix(20))...")
+                } else {
+                    NSLog("⚠️ No JWT token received from JavaScript, trying AppDelegate fallback")
+                    // Fallback to AppDelegate if not provided (like EventPhotoPicker does)
+                    jwtToken = AppDelegate.getStoredJwtToken()
+                    
+                    if jwtToken == nil || !AppDelegate.isJwtTokenValid() {
+                        NSLog("⚠️ No valid JWT token in AppDelegate either")
+                        // Try to refresh
+                        AppDelegate.refreshJwtTokenIfNeeded()
+                        jwtToken = AppDelegate.getStoredJwtToken()
+                    }
+                    
+                    if let token = jwtToken {
+                        NSLog("🔐 Using fallback JWT token from AppDelegate: \(token.prefix(20))...")
+                    } else {
+                        NSLog("❌ No JWT token available from any source")
+                        call.reject("No JWT token available", "AUTH_ERROR", nil)
+                        return
+                    }
+                }
+                
+                // CRITICAL: getUserEventsWithAnalytics API requires Supabase access token AND user ID
+                NSLog("🔐 Getting Supabase session data for getUserEventsWithAnalytics API...")
+                let (supabaseToken, userId) = await getSupabaseSessionData()
+                
+                guard let token = supabaseToken else {
+                    NSLog("❌ Failed to get Supabase access token for getUserEvents API")
+                    call.reject("Supabase authentication required", "MISSING_SUPABASE_AUTH", nil)
+                    return
+                }
+                
+                guard let userIdValue = userId else {
+                    NSLog("❌ Failed to get user ID from Supabase session for getUserEvents API")
+                    call.reject("User ID required for getUserEvents", "MISSING_USER_ID", nil)
+                    return
+                }
+                
+                NSLog("🔐 Using Supabase session - token: \(token.prefix(20))..., userId: \(userIdValue)")
+                
+                // Fetch user's events from getUserEventsWithAnalytics API
+                let events = await fetchUserEventsFromAPI(supabaseToken: token, userId: userIdValue)
+                
+                // Filter events for auto-upload eligibility
+                let eligibleEvents = filterEventsForAutoUpload(events)
+                
+                NSLog("📊 Found \(eligibleEvents.count) auto-upload eligible events")
+                
+                call.resolve([
+                    "success": true,
+                    "events": eligibleEvents,
+                    "totalEvents": events.count,
+                    "eligibleEvents": eligibleEvents.count
+                ])
+                
+            } catch {
+                NSLog("❌ getUserEvents error: \(error.localizedDescription)")
+                call.reject("Failed to get user events", "API_ERROR", error)
+            }
+        }
+    }
+    
+    @objc func checkUploadedPhotos(_ call: CAPPluginCall) {
+        NSLog("📋 checkUploadedPhotos called")
+        NSLog("📦 Call parameters: \(call.options)")
+        
+        Task {
+            do {
+                // No parameters required - just get the full events list
+                
+                // Get JWT token from JavaScript parameters
+                var jwtToken: String? = call.getString("jwtToken")
+                
+                if let token = jwtToken {
+                    NSLog("✅ JWT token received from JavaScript: \(token.prefix(20))...")
+                } else {
+                    NSLog("⚠️ No JWT token received from JavaScript, trying AppDelegate fallback")
+                    jwtToken = AppDelegate.getStoredJwtToken()
+                    
+                    if jwtToken == nil || !AppDelegate.isJwtTokenValid() {
+                        NSLog("⚠️ No valid JWT token in AppDelegate either")
+                        AppDelegate.refreshJwtTokenIfNeeded()
+                        jwtToken = AppDelegate.getStoredJwtToken()
+                    }
+                    
+                    if let token = jwtToken {
+                        NSLog("🔐 Using fallback JWT token from AppDelegate: \(token.prefix(20))...")
+                    } else {
+                        NSLog("❌ No JWT token available from any source")
+                        call.reject("No JWT token available", "AUTH_ERROR", nil)
+                        return
+                    }
+                }
+                
+                // Fetch events list from Supabase (same API as getUserEvents)
+                guard let token = jwtToken else {
+                    call.reject("JWT token is required", "MISSING_AUTH", nil)
+                    return
+                }
+                
+                // This method needs to be updated to use Supabase session data instead of JWT
+                // For now, return empty events array until checkUploadedPhotos is properly implemented
+                let events: [[String: Any]] = []
+                
+                NSLog("📊 Found \(events.count) events to check for uploads")
+                
+                call.resolve([
+                    "success": true,
+                    "events": events,
+                    "eventCount": events.count,
+                    "message": "Events retrieved successfully for upload checking"
+                ])
+                
+            } catch {
+                NSLog("❌ checkUploadedPhotos error: \(error.localizedDescription)")
+                call.reject("Failed to check uploaded photos", "API_ERROR", error)
+            }
+        }
+    }
+    
+    @objc func scanForPhotos(_ call: CAPPluginCall) {
+        NSLog("📸 scanForPhotos called")
+        NSLog("📦 Call parameters: \(call.options)")
+        
+        Task {
+            do {
+                guard let eventId = call.getString("eventId") else {
+                    call.reject("Missing eventId parameter", "INVALID_PARAMS", nil)
+                    return
+                }
+                
+                // Get JWT token (following EventPhotoPicker pattern)
+                var jwtToken: String? = call.getString("jwtToken")
+                
+                // Fallback to AppDelegate if no JWT token provided (following EventPhotoPicker pattern)
+                if jwtToken == nil {
+                    jwtToken = AppDelegate.getStoredJwtToken()
+                    
+                    if jwtToken == nil || !AppDelegate.isJwtTokenValid() {
+                        NSLog("🔄 Refreshing JWT token...")
+                        AppDelegate.refreshJwtTokenIfNeeded()
+                        jwtToken = AppDelegate.getStoredJwtToken()
+                    }
+                    
+                    if let token = jwtToken {
+                        NSLog("🔐 Using JWT token from AppDelegate: \(token.prefix(20))...")
+                    } else {
+                        NSLog("⚠️ No JWT token available from AppDelegate")
+                    }
+                }
+                
+                guard let token = jwtToken else {
+                    call.reject("JWT token is required", "MISSING_AUTH", nil)
+                    return
+                }
+                
+                // Get optional parameters
+                let startDate = call.getString("startDate") // ISO 8601 format
+                let endDate = call.getString("endDate")     // ISO 8601 format
+                let limit = call.getInt("limit") ?? 100      // Default to 100 photos
+                
+                NSLog("📅 Scanning photos for event: \(eventId)")
+                if let start = startDate, let end = endDate {
+                    NSLog("🕐 Date range: \(start) to \(end)")
+                }
+                NSLog("📊 Limit: \(limit) photos")
+                
+                // Simulate photo library scanning
+                let scannedPhotos = await scanPhotoLibrary(
+                    eventId: eventId,
+                    startDate: startDate,
+                    endDate: endDate,
+                    limit: limit,
+                    jwtToken: token
+                )
+                
+                call.resolve([
+                    "success": true,
+                    "eventId": eventId,
+                    "photoCount": scannedPhotos.count,
+                    "photos": scannedPhotos,
+                    "scanParams": [
+                        "startDate": startDate ?? "",
+                        "endDate": endDate ?? "",
+                        "limit": limit
+                    ],
+                    "message": "Photo library scan completed successfully"
+                ])
+                
+            } catch {
+                NSLog("❌ scanForPhotos error: \(error)")
+                call.reject("Failed to scan photos", "SCAN_ERROR", error)
+            }
+        }
+    }
+    
+    @objc func showScanningOverlay(_ call: CAPPluginCall) {
+        NSLog("🔄 showScanningOverlay called")
+        NSLog("📦 Call parameters: \(call.options)")
+        
+        // Use the existing UploadStatusOverlay plugin for consistency with EventPhotoPicker
+        let message = call.getString("message") ?? "Scanning for uploads"
+        let subMessage = call.getString("subMessage")
+        
+        NSLog("🎭 Delegating to UploadStatusOverlay plugin with scanning message")
+        
+        // Use JavaScript to call UploadStatusOverlay with animated scanning message
+        DispatchQueue.main.async { [weak self] in
+            self?.bridge?.webView?.evaluateJavaScript("""
+                (function() {
+                    console.log('🔍 AutoUpload: Starting scanning overlay with animated dots...');
+                    
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                        console.log('✅ AutoUpload: UploadStatusOverlay found, showing scanning overlay');
+                        
+                        // Show the overlay first
+                        window.Capacitor.Plugins.UploadStatusOverlay.showOverlay();
+                        
+                        // Start animated dots for "Scanning for uploads..."
+                        let dotCount = 0;
+                        const baseMessage = 'Scanning for uploads';
+                        
+                        window.autoUploadDotAnimation = setInterval(() => {
+                            const dots = '.'.repeat((dotCount % 4) || 1); // 1-3 dots, never 0
+                            const animatedMessage = baseMessage + dots;
+                            
+                            // Update the overlay header text
+                            if (window.Capacitor.Plugins.UploadStatusOverlay.updateProgress) {
+                                window.Capacitor.Plugins.UploadStatusOverlay.updateProgress({
+                                    completed: 0,
+                                    total: 0,
+                                    message: animatedMessage
+                                });
+                            }
+                            
+                            dotCount++;
+                        }, 500); // Change dots every 500ms
+                        
+                        console.log('✅ AutoUpload: Scanning overlay with animated dots started');
+                        return { success: true, usingUploadStatusOverlay: true, animationStarted: true };
+                    } else {
+                        console.log('❌ AutoUpload: UploadStatusOverlay not available');
+                        console.log('Available plugins:', Object.keys(window.Capacitor?.Plugins || {}));
+                        return { success: false, error: 'UploadStatusOverlay not found' };
+                    }
+                })();
+            """) { result, error in
+                if let error = error {
+                    NSLog("❌ JavaScript error: \(error)")
+                    call.reject("Failed to show overlay", "JS_ERROR", error)
+                    return
+                }
+                
+                // Parse JavaScript result
+                if let resultDict = result as? [String: Any],
+                   let success = resultDict["success"] as? Bool, success {
+                    NSLog("✅ UploadStatusOverlay shown successfully via JavaScript")
+                    call.resolve([
+                        "success": true,
+                        "overlayShown": true,
+                        "message": message,
+                        "subMessage": subMessage ?? "",
+                        "usingUploadStatusOverlay": true
+                    ])
+                } else {
+                    NSLog("❌ UploadStatusOverlay not available, falling back to simple alert")
+                    
+                    // Fallback to simple alert
+                    let alert = UIAlertController(title: "Scanning Photos", message: message, preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                        NSLog("❌ User cancelled scanning")
+                    })
+                    
+                    if let presentingVC = self?.bridge?.viewController {
+                        presentingVC.present(alert, animated: true) {
+                            call.resolve([
+                                "success": true,
+                                "overlayShown": true,
+                                "message": message,
+                                "usingUploadStatusOverlay": false,
+                                "fallbackUsed": true
+                            ])
+                        }
+                    } else {
+                        call.reject("Failed to show overlay", "UI_ERROR", nil)
+                    }
+                }
+            }
+        }
+    }
+    
+    @objc func hideScanningOverlay(_ call: CAPPluginCall) {
+        NSLog("🔄 hideScanningOverlay called")
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.bridge?.webView?.evaluateJavaScript("""
+                (function() {
+                    console.log('🔍 AutoUpload: Stopping scanning overlay and animation...');
+                    
+                    // Stop the animated dots animation
+                    if (window.autoUploadDotAnimation) {
+                        clearInterval(window.autoUploadDotAnimation);
+                        window.autoUploadDotAnimation = null;
+                        console.log('✅ AutoUpload: Dot animation stopped');
+                    }
+                    
+                    // Hide the overlay
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                        window.Capacitor.Plugins.UploadStatusOverlay.hideOverlay();
+                        console.log('✅ AutoUpload: Scanning overlay hidden');
+                        return { success: true, overlayStopped: true };
+                    } else {
+                        console.log('❌ AutoUpload: UploadStatusOverlay not available');
+                        return { success: false, error: 'UploadStatusOverlay not found' };
+                    }
+                })();
+            """) { result, error in
+                if let error = error {
+                    NSLog("❌ JavaScript error: \(error)")
+                    call.reject("Failed to hide overlay", "JS_ERROR", error)
+                    return
+                }
+                
+                NSLog("✅ Scanning overlay hidden successfully")
+                call.resolve([
+                    "success": true,
+                    "overlayHidden": true,
+                    "animationStopped": true
+                ])
+            }
+        }
+    }
+    
+    // Method to dismiss the scanning overlay using UploadStatusOverlay
+    private func dismissScanningOverlay() {
+        NSLog("🎭 Dismissing scanning overlay via UploadStatusOverlay")
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.bridge?.webView?.evaluateJavaScript("""
+                (function() {
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                        window.Capacitor.Plugins.UploadStatusOverlay.hideOverlay();
+                        console.log('✅ UploadStatusOverlay hidden from AutoUpload');
+                        return { success: true };
+                    } else {
+                        console.log('❌ UploadStatusOverlay not available for dismissal');
+                        return { success: false };
+                    }
+                })();
+            """) { result, error in
+                if let error = error {
+                    NSLog("❌ Failed to hide UploadStatusOverlay: \(error)")
+                } else {
+                    NSLog("✅ UploadStatusOverlay hidden successfully")
+                }
+            }
+        }
+    }
+    
+    @objc func uploadPhotos(_ call: CAPPluginCall) {
+        NSLog("📤 uploadPhotos called")
+        NSLog("📦 Call parameters: \(call.options)")
+        
+        Task {
+            do {
+                guard let eventId = call.getString("eventId") else {
+                    call.reject("Missing eventId parameter", "INVALID_PARAMS", nil)
+                    return
+                }
+                
+                guard let photos = call.getArray("photos") as? [[String: Any]] else {
+                    call.reject("Missing photos array parameter", "INVALID_PARAMS", nil)
+                    return
+                }
+                
+                // Get JWT token (following EventPhotoPicker pattern)
+                var jwtToken: String? = call.getString("jwtToken")
+                
+                // Fallback to AppDelegate if no JWT token provided
+                if jwtToken == nil {
+                    jwtToken = AppDelegate.getStoredJwtToken()
+                    
+                    if jwtToken == nil || !AppDelegate.isJwtTokenValid() {
+                        NSLog("🔄 Refreshing JWT token...")
+                        AppDelegate.refreshJwtTokenIfNeeded()
+                        jwtToken = AppDelegate.getStoredJwtToken()
+                    }
+                    
+                    if let token = jwtToken {
+                        NSLog("🔐 Using JWT token from AppDelegate: \(token.prefix(20))...")
+                    } else {
+                        NSLog("⚠️ No JWT token available from AppDelegate")
+                    }
+                }
+                
+                guard let token = jwtToken else {
+                    call.reject("JWT token is required", "MISSING_AUTH", nil)
+                    return
+                }
+                
+                // Get optional parameters
+                let batchSize = call.getInt("batchSize") ?? 1  // Default to 1 photo at a time
+                let retryFailedUploads = call.getBool("retryFailedUploads") ?? false
+                let skipDuplicates = call.getBool("skipDuplicates") ?? true
+                
+                NSLog("📤 Starting upload for \(photos.count) photos to event: \(eventId)")
+                NSLog("🔧 Options: batchSize=\(batchSize), retryFailed=\(retryFailedUploads), skipDuplicates=\(skipDuplicates)")
+                
+                // Start upload process
+                let uploadResults = await startPhotoUploads(
+                    eventId: eventId,
+                    photos: photos,
+                    jwtToken: token,
+                    batchSize: batchSize,
+                    skipDuplicates: skipDuplicates
+                )
+                
+                // Calculate statistics
+                let successCount = uploadResults.filter { $0["status"] as? String == "success" }.count
+                let failedCount = uploadResults.filter { $0["status"] as? String == "failed" }.count
+                let skippedCount = uploadResults.filter { $0["status"] as? String == "skipped" }.count
+                
+                NSLog("✅ Upload complete: \(successCount) success, \(failedCount) failed, \(skippedCount) skipped")
+                
+                call.resolve([
+                    "success": true,
+                    "eventId": eventId,
+                    "totalPhotos": photos.count,
+                    "uploaded": successCount,
+                    "failed": failedCount,
+                    "skipped": skippedCount,
+                    "results": uploadResults,
+                    "message": "Photo upload process completed"
+                ])
+                
+            } catch {
+                NSLog("❌ uploadPhotos error: \(error)")
+                call.reject("Failed to upload photos", "UPLOAD_ERROR", error)
+            }
+        }
+    }
+    
+    @objc func getUploadProgress(_ call: CAPPluginCall) {
+        NSLog("📊 getUploadProgress called")
+        
+        // Update network status before returning
+        updateNetworkStatus()
+        
+        // Return current upload progress (this method works now)
+        call.resolve(uploadProgress)
+    }
+    
+    // MARK: - Helper Methods
+    
+    /// Update network status in upload progress
+    private func updateNetworkStatus() {
+        // Simple network check for now - can be enhanced later
+        uploadProgress["networkType"] = "wifi" // Placeholder
+        uploadProgress["isWiFiConnected"] = true // Placeholder
+    }
+    
+    // MARK: - JWT and Authentication Methods
+    
+    /// Get JWT token from web context (for upload authentication)
+    private func getJwtTokenFromWeb() async -> String? {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                // Call JavaScript function to get JWT token
+                self.bridge?.webView?.evaluateJavaScript("""
+                    (function() {
+                        try {
+                            if (window.getPhotoShareJwtToken && typeof window.getPhotoShareJwtToken === 'function') {
+                                return window.getPhotoShareJwtToken();
+                            } else if (window.getJwtTokenForNativePlugin && typeof window.getJwtTokenForNativePlugin === 'function') {
+                                return window.getJwtTokenForNativePlugin();
+                            } else {
+                                return null;
+                            }
+                        } catch (error) {
+                            console.error('Error getting JWT token:', error);
+                            return null;
+                        }
+                    })();
+                """) { result, error in
+                    if let error = error {
+                        NSLog("❌ Failed to get JWT token: \\(error.localizedDescription)")
+                        continuation.resume(returning: nil)
+                    } else if let token = result as? String, !token.isEmpty {
+                        NSLog("✅ JWT token obtained successfully")
+                        continuation.resume(returning: token)
+                    } else {
+                        NSLog("❌ No JWT token available from web context")
+                        continuation.resume(returning: nil)
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Get fresh Supabase session data - Using auth bridge as recommended by web team
+    private func getSupabaseSessionData() async -> (String?, String?) {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                // Use the auth bridge functions built by the web team
+                self.bridge?.webView?.evaluateJavaScript("""
+                    (function() {
+                        try {
+                            console.log('🔐 iOS: Checking auth bridge readiness...');
+                            
+                            // Check if auth bridge is ready
+                            if (typeof window.isPhotoShareAuthReady === 'function') {
+                                var isReady = window.isPhotoShareAuthReady();
+                                console.log('🔍 Auth bridge ready:', isReady);
+                                
+                                if (!isReady) {
+                                    console.log('⏳ Auth bridge not ready yet');
+                                    return { token: null, userId: null, error: 'not_ready' };
+                                }
+                            } else {
+                                console.log('⚠️ isPhotoShareAuthReady function not found');
+                            }
+                            
+                            // Get auth state directly from PhotoShareAuthState
+                            if (window.PhotoShareAuthState) {
+                                var authState = window.PhotoShareAuthState;
+                                console.log('📊 Auth state available:', !!authState);
+                                console.log('🔍 Authenticated:', authState.authenticated);
+                                console.log('🔍 Has access token:', !!authState.accessToken);
+                                
+                                if (authState.accessToken) {
+                                    console.log('✅ Token found in auth state');
+                                    console.log('👤 User ID:', authState.user?.id || 'not found');
+                                    return { 
+                                        token: authState.accessToken, 
+                                        userId: authState.user?.id || null 
+                                    };
+                                }
+                            } else {
+                                console.log('⚠️ window.PhotoShareAuthState not found');
+                            }
+                            
+                            // Fallback: Try the async function if available
+                            if (typeof window.getPhotoShareJwtToken === 'function') {
+                                console.log('🔍 Found getPhotoShareJwtToken function, but need async handling');
+                                // Note: This would need Promise handling which doesn't work well in iOS WebView
+                            }
+                            
+                            console.log('❌ No valid auth state found');
+                            return { token: null, userId: null, error: 'no_auth' };
+                            
+                        } catch (error) {
+                            console.error('❌ Error getting token:', error);
+                            return { token: null, userId: null, error: error.message };
+                        }
+                    })();
+                """) { result, error in
+                    if let error = error {
+                        NSLog("❌ JavaScript execution error: \(error.localizedDescription)")
+                        continuation.resume(returning: (nil, nil))
+                        return
+                    }
+                    
+                    guard let resultDict = result as? [String: Any] else {
+                        NSLog("❌ Invalid result format: \(String(describing: result))")
+                        continuation.resume(returning: (nil, nil))
+                        return
+                    }
+                    
+                    // Check for error in the result
+                    if let errorMsg = resultDict["error"] as? String {
+                        NSLog("⚠️ Auth bridge error: \(errorMsg)")
+                        if errorMsg == "not_ready" {
+                            NSLog("💡 Auth bridge not ready yet - may need to wait longer")
+                        }
+                        continuation.resume(returning: (nil, nil))
+                        return
+                    }
+                    
+                    // Extract token and userId, handling NSNull
+                    var token: String? = nil
+                    var userId: String? = nil
+                    
+                    if let tokenValue = resultDict["token"], !(tokenValue is NSNull) {
+                        token = tokenValue as? String
+                    }
+                    
+                    if let userIdValue = resultDict["userId"], !(userIdValue is NSNull) {
+                        userId = userIdValue as? String
+                    }
+                    
+                    if let token = token, !token.isEmpty {
+                        NSLog("✅ iOS: Auth bridge session obtained - token: \(token.prefix(20))..., userId: \(userId ?? "none")")
+                        continuation.resume(returning: (token, userId))
+                    } else {
+                        NSLog("❌ iOS: No valid token in auth bridge result")
+                        continuation.resume(returning: (nil, nil))
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Get Supabase session token (for API calls) - Legacy method for compatibility
+    private func getSupabaseSessionToken() async -> String? {
+        let (token, _) = await getSupabaseSessionData()
+        return token
+    }
+    
+    /// Async fallback for Supabase session data retrieval
+    private func getSupabaseSessionAsync(continuation: CheckedContinuation<(String?, String?), Never>) {
+        self.bridge?.webView?.evaluateJavaScript("""
+            window.supabase.auth.getSession().then(({data: {session}, error}) => {
+                if (error) {
+                    console.error('🔐 getSession error:', error);
+                    window._supabaseSessionResult = { token: null, userId: null };
+                } else if (session?.access_token) {
+                    console.log('🔐 Async session token obtained:', session.access_token.substring(0, 20) + '...');
+                    console.log('🔐 Async user ID obtained:', session.user?.id || 'none');
+                    window._supabaseSessionResult = {
+                        token: session.access_token,
+                        userId: session.user?.id || null
+                    };
+                } else {
+                    console.log('🔐 No session in async call');
+                    window._supabaseSessionResult = { token: null, userId: null };
+                }
+            }).catch(err => {
+                console.error('🔐 Async getSession failed:', err);
+                window._supabaseSessionResult = { token: null, userId: null };
+            });
+        """) { _, _ in
+            // Poll for result
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.bridge?.webView?.evaluateJavaScript("window._supabaseSessionResult") { result, error in
+                    if let resultDict = result as? [String: Any],
+                       let token = resultDict["token"] as? String, !token.isEmpty, token != "null" {
+                        let userId = resultDict["userId"] as? String
+                        NSLog("✅ Async Supabase session obtained: token \\(token.prefix(20))..., userId: \\(userId ?? \"none\")")
+                        continuation.resume(returning: (token, userId))
+                    } else {
+                        NSLog("❌ Async Supabase session failed")
+                        continuation.resume(returning: (nil, nil))
+                    }
+                    // Clean up
+                    self.bridge?.webView?.evaluateJavaScript("delete window._supabaseSessionResult") { _, _ in }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Supabase API Methods
+    
+    /// Fetch user's events from REAL API
+    private func fetchUserEventsFromSupabase(supabaseToken: String) async -> [[String: Any]] {
+        NSLog("🔍 Fetching user events from REAL API...")
+        NSLog("🔐 Using Supabase token: \(supabaseToken.prefix(20))...")
+        
+        // Build API request to getUserEventsWithAnalytics
+        guard let url = URL(string: "https://photo-share.app/api/getUserEventsWithAnalytics") else {
+            NSLog("❌ Invalid API URL")
+            return []
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(supabaseToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        NSLog("📡 Making API request to: \(url.absoluteString)")
+        NSLog("📡 Authorization: Bearer \(supabaseToken.prefix(20))...")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            // Log HTTP response details
+            if let httpResponse = response as? HTTPURLResponse {
+                NSLog("📡 API Response Status: \(httpResponse.statusCode)")
+                NSLog("📡 API Response Headers: \(httpResponse.allHeaderFields)")
+            }
+            
+            // Log raw response data
+            if let responseString = String(data: data, encoding: .utf8) {
+                let truncated = responseString.count > 1000 ? String(responseString.prefix(1000)) + "..." : responseString
+                NSLog("📡 API Raw Response: \(truncated)")
+            }
+            
+            // Parse JSON response
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                NSLog("❌ Failed to parse JSON response")
+                return []
+            }
+            
+            NSLog("📊 API Response JSON keys: \(Array(json.keys))")
+            
+            // Extract events array
+            guard let events = json["events"] as? [[String: Any]] else {
+                NSLog("❌ No 'events' array found in response")
+                NSLog("📊 Full JSON structure: \(json)")
+                return []
+            }
+            
+            NSLog("✅ Successfully fetched \(events.count) events from API")
+            
+            // Log each event details for debugging
+            for (index, event) in events.enumerated() {
+                NSLog("📋 Event \(index + 1):")
+                NSLog("  - ID: \(event["id"] as? String ?? "unknown")")
+                NSLog("  - Name: \(event["name"] as? String ?? "unknown")")
+                NSLog("  - Start: \(event["start_time"] as? String ?? "unknown")")
+                NSLog("  - End: \(event["end_time"] as? String ?? "unknown")")
+                NSLog("  - Live: \(event["live"] as? Bool ?? false)")
+                NSLog("  - User Role: \(event["user_role"] as? [String] ?? [])")
+            }
+            
+            return events
+            
+        } catch {
+            NSLog("❌ API request failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    /// Filter events for auto-upload eligibility
+    private func filterEventsForAutoUpload(_ events: [[String: Any]]) -> [[String: Any]] {
+        let eligibleEvents = events.filter { event in
+            guard let isLive = event["is_live"] as? Bool,
+                  let autoUploadEnabled = event["auto_upload_enabled"] as? Bool else {
+                return false
+            }
+            
+            // Event must be live and have auto-upload enabled
+            let isEligible = isLive && autoUploadEnabled
+            
+            if let eventName = event["name"] as? String {
+                NSLog("📋 Event '\\(eventName)': live=\\(isLive), autoUpload=\\(autoUploadEnabled), eligible=\\(isEligible)")
+            }
+            
+            return isEligible
+        }
+        
+        NSLog("✅ Filtered \\(eligibleEvents.count) eligible events from \\(events.count) total events")
+        return eligibleEvents
+    }
+    
+    /// Fetch user's events from getUserEventsWithAnalytics API (CORRECT ENDPOINT) 
+    private func fetchUserEventsFromAPI(supabaseToken: String, userId: String) async -> [[String: Any]] {
+        NSLog("🔍 Fetching user events from getUserEventsWithAnalytics API...")
+        NSLog("🔐 Using Supabase token: \(supabaseToken.prefix(20))...")
+        NSLog("👤 For user ID: \(userId)")
+        
+        // Build URL with user ID as query parameter
+        guard var urlComponents = URLComponents(string: "https://photo-share.app/api/getUserEventsWithAnalytics") else {
+            NSLog("❌ Invalid getUserEventsWithAnalytics URL")
+            return []
+        }
+        
+        // Add user ID as query parameter
+        urlComponents.queryItems = [
+            URLQueryItem(name: "user_id", value: userId)
+        ]
+        
+        guard let url = urlComponents.url else {
+            NSLog("❌ Failed to build URL with user ID parameter")
+            return []
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(supabaseToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        NSLog("📡 Making API request to getUserEventsWithAnalytics...")
+        NSLog("📡 Request URL: \(url.absoluteString)")
+        NSLog("📡 Authorization: Bearer \(supabaseToken.prefix(20))...")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            // Debug HTTP response
+            if let httpResponse = response as? HTTPURLResponse {
+                NSLog("📡 getUserEventsWithAnalytics Response Status: \(httpResponse.statusCode)")
+                NSLog("📡 getUserEventsWithAnalytics Response Headers: \(httpResponse.allHeaderFields)")
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                NSLog("❌ Invalid HTTP response from getUserEventsWithAnalytics")
+                return []
+            }
+            
+            guard httpResponse.statusCode == 200 else {
+                NSLog("❌ getUserEventsWithAnalytics HTTP error: \(httpResponse.statusCode)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    let truncated = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
+                    NSLog("📡 getUserEventsWithAnalytics Error Response: \(truncated)")
+                }
+                return []
+            }
+            
+            // Debug raw response
+            if let responseString = String(data: data, encoding: .utf8) {
+                let truncated = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
+                NSLog("📡 getUserEventsWithAnalytics Raw Response: \(truncated)")
+            }
+            
+            // Parse JSON response according to API documentation
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let events = json["events"] as? [[String: Any]] {
+                    NSLog("✅ Successfully fetched \(events.count) events from getUserEventsWithAnalytics API")
+                    
+                    // Log sample event for debugging
+                    if let firstEvent = events.first {
+                        NSLog("📋 Sample event: \(firstEvent)")
+                    }
+                    
+                    // Log additional API response fields
+                    if let totalEvents = json["total_events"] as? Int {
+                        NSLog("📊 Total events in API response: \(totalEvents)")
+                    }
+                    if let userId = json["user_id"] as? String {
+                        NSLog("👤 User ID from API: \(userId)")
+                    }
+                    
+                    return events
+                } else {
+                    NSLog("❌ No 'events' array found in getUserEventsWithAnalytics response")
+                    NSLog("📡 Available JSON keys: \(json.keys)")
+                    return []
+                }
+            } else {
+                NSLog("❌ Failed to parse JSON response from getUserEventsWithAnalytics")
+                return []
+            }
+        } catch {
+            NSLog("❌ Network error calling getUserEventsWithAnalytics: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    /// Fetch uploaded photos from Supabase for duplicate detection
+    private func fetchUploadedPhotosFromSupabase(eventId: String, photoIds: [String], jwtToken: String) async -> [[String: Any]] {
+        NSLog("🔍 Fetching uploaded photos from Supabase API for event: \(eventId)")
+        
+        if !photoIds.isEmpty {
+            NSLog("📋 Checking specific photo IDs: \(photoIds)")
+        }
+        
+        // Build API URL with query parameters
+        guard let url = URL(string: "https://jgfcfdlfcnmaripgpepl.supabase.co/functions/v1/get-uploaded-photos") else {
+            NSLog("❌ Invalid get-uploaded-photos URL")
+            return []
+        }
+        
+        var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        urlComponents?.queryItems = [
+            URLQueryItem(name: "event_id", value: eventId),
+            URLQueryItem(name: "limit", value: "50"),        // Max efficiency
+            URLQueryItem(name: "offset", value: "0")         // Start with first page
+        ]
+        
+        guard let finalURL = urlComponents?.url else {
+            NSLog("❌ Failed to build URL with query parameters")
+            return []
+        }
+        
+        // Setup HTTP request
+        var request = URLRequest(url: finalURL)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(jwtToken)", forHTTPHeaderField: "Authorization")
+        
+        NSLog("📡 Fetching uploaded photos for event: \(eventId)")
+        NSLog("📡 Request URL: \(finalURL.absoluteString)")
+        NSLog("📡 Authorization: Bearer \(jwtToken.prefix(20))...")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            // Debug HTTP response
+            if let httpResponse = response as? HTTPURLResponse {
+                NSLog("📡 get-uploaded-photos Response Status: \(httpResponse.statusCode)")
+                NSLog("📡 get-uploaded-photos Response Headers: \(httpResponse.allHeaderFields)")
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                NSLog("❌ Invalid HTTP response from get-uploaded-photos")
+                return []
+            }
+            
+            guard httpResponse.statusCode == 200 else {
+                NSLog("❌ get-uploaded-photos HTTP error: \(httpResponse.statusCode)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    let truncated = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
+                    NSLog("📡 Error Response: \(truncated)")
+                }
+                return []
+            }
+            
+            // Debug raw response
+            if let responseString = String(data: data, encoding: .utf8) {
+                let truncated = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
+                NSLog("📡 get-uploaded-photos Raw Response: \(truncated)")
+            }
+            
+            // Parse JSON
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let photos = json["photos"] as? [[String: Any]] {
+                    NSLog("✅ Fetched \(photos.count) uploaded photos from API")
+                    
+                    // Handle pagination if needed
+                    if let hasMore = json["has_more"] as? Bool, hasMore {
+                        NSLog("📄 More pages available - implement pagination if needed")
+                        // TODO: Implement pagination for large photo sets
+                    }
+                    
+                    // Filter by specific photo IDs if provided
+                    let filteredPhotos = photoIds.isEmpty ? photos : photos.filter { photo in
+                        // Note: API response uses different field names than mock data
+                        if let devicePhotoId = photo["device_photo_id"] as? String {
+                            return photoIds.contains(devicePhotoId)
+                        }
+                        return false
+                    }
+                    
+                    NSLog("📊 Returning \(filteredPhotos.count) uploaded photos after filtering")
+                    return filteredPhotos
+                } else {
+                    NSLog("❌ No 'photos' array found in API response")
+                    return []
+                }
+            } else {
+                NSLog("❌ Failed to parse JSON response from get-uploaded-photos")
+                return []
+            }
+        } catch {
+            NSLog("❌ Network error fetching uploaded photos: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    /// Create photo hash map for efficient duplicate detection
+    private func createPhotoHashMap(_ uploadedPhotos: [[String: Any]]) -> [String: Any] {
+        var hashMap: [String: Any] = [:]
+        
+        for photo in uploadedPhotos {
+            // Use API response field names (see get-uploaded-photos-api-integration.md)
+            if let fileHash = photo["file_hash"] as? String,
+               let uploadId = photo["id"] {
+                
+                // Map by file hash for content-based duplicate detection
+                hashMap[fileHash] = [
+                    "upload_id": uploadId,
+                    "file_name": photo["file_name"] ?? "",
+                    "upload_timestamp": photo["upload_timestamp"] ?? "",
+                    "original_timestamp": photo["original_timestamp"] ?? "",
+                    "perceptual_hash": photo["perceptual_hash"] ?? "",
+                    "file_size_bytes": photo["file_size_bytes"] ?? 0,
+                    "image_width": photo["image_width"] ?? 0,
+                    "image_height": photo["image_height"] ?? 0
+                ]
+                
+                // Also map by perceptual hash for visual similarity detection
+                if let perceptualHash = photo["perceptual_hash"] as? String, !perceptualHash.isEmpty {
+                    hashMap[perceptualHash] = [
+                        "upload_id": uploadId,
+                        "file_hash": fileHash,
+                        "file_name": photo["file_name"] ?? "",
+                        "upload_timestamp": photo["upload_timestamp"] ?? ""
+                    ]
+                }
+            }
+        }
+        
+        NSLog("🗺️ Created hash map with \(hashMap.keys.count) entries for duplicate detection")
+        NSLog("🗺️ Hash map includes both file_hash and perceptual_hash mappings")
+        return hashMap
+    }
+    
+    /// Scan photo library for photos within event timeframe
+    private func scanPhotoLibrary(eventId: String, startDate: String?, endDate: String?, limit: Int, jwtToken: String) async -> [[String: Any]] {
+        // TODO: Implement actual photo library scanning with Photos framework
+        // For now, return mock data to test the flow
+        NSLog("📸 Scanning photo library for event: \\(eventId)")
+        
+        if let start = startDate, let end = endDate {
+            NSLog("🕐 Filtering photos between \\(start) and \\(end)")
+        } else {
+            NSLog("🕐 No date filter - scanning all recent photos")
+        }
+        
+        // Simulate scanning delay
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        // Mock photo library data for testing
+        let mockPhotos: [[String: Any]] = [
+            [
+                "id": "photo_scan_001",
+                "localIdentifier": "photo_device_scan_001",
+                "filename": "IMG_2001.jpg",
+                "creationDate": "2025-01-15T15:00:00Z",
+                "modificationDate": "2025-01-15T15:00:05Z",
+                "pixelWidth": 4032,
+                "pixelHeight": 3024,
+                "fileSize": 2850000,
+                "mediaType": "image",
+                "mediaSubtype": "photo",
+                "location": [
+                    "latitude": 37.7749,
+                    "longitude": -122.4194
+                ],
+                "isFavorite": false,
+                "isHidden": false
+            ],
+            [
+                "id": "photo_scan_002",
+                "localIdentifier": "photo_device_scan_002", 
+                "filename": "IMG_2002.jpg",
+                "creationDate": "2025-01-15T15:05:00Z",
+                "modificationDate": "2025-01-15T15:05:03Z",
+                "pixelWidth": 4032,
+                "pixelHeight": 3024,
+                "fileSize": 3100000,
+                "mediaType": "image",
+                "mediaSubtype": "photo",
+                "location": [
+                    "latitude": 37.7849,
+                    "longitude": -122.4094
+                ],
+                "isFavorite": true,
+                "isHidden": false
+            ],
+            [
+                "id": "photo_scan_003",
+                "localIdentifier": "photo_device_scan_003",
+                "filename": "IMG_2003.jpg", 
+                "creationDate": "2025-01-15T15:10:00Z",
+                "modificationDate": "2025-01-15T15:10:02Z",
+                "pixelWidth": 3024,
+                "pixelHeight": 4032,
+                "fileSize": 2650000,
+                "mediaType": "image",
+                "mediaSubtype": "photo",
+                "location": [
+                    "latitude": 37.7949,
+                    "longitude": -122.3994
+                ],
+                "isFavorite": false,
+                "isHidden": false
+            ]
+        ]
+        
+        // Apply limit
+        let limitedPhotos = Array(mockPhotos.prefix(limit))
+        
+        NSLog("📱 Found \\(limitedPhotos.count) photos in library scan (limit: \\(limit))")
+        
+        // Log each photo for debugging
+        for (index, photo) in limitedPhotos.enumerated() {
+            if let filename = photo["filename"] as? String,
+               let creationDate = photo["creationDate"] as? String {
+                NSLog("📷 Photo \\(index + 1): \\(filename) - \\(creationDate)")
+            }
+        }
+        
+        return limitedPhotos
+    }
+    
+    /// Start photo uploads to server
+    private func startPhotoUploads(eventId: String, photos: [[String: Any]], jwtToken: String, batchSize: Int, skipDuplicates: Bool) async -> [[String: Any]] {
+        // TODO: Implement actual photo upload to Supabase
+        // For now, return mock upload results to test the flow
+        NSLog("📤 Starting photo uploads for event: \(eventId)")
+        NSLog("📱 Processing \(photos.count) photos with batch size: \(batchSize)")
+        
+        var uploadResults: [[String: Any]] = []
+        
+        // Simulate checking for duplicates if enabled
+        if skipDuplicates {
+            NSLog("🔍 Checking for duplicates before upload...")
+            // In real implementation, would call checkUploadedPhotos here
+        }
+        
+        // Process photos in batches
+        for (index, photo) in photos.enumerated() {
+            NSLog("📸 Processing photo \(index + 1)/\(photos.count)")
+            
+            // Simulate upload delay
+            try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds per photo
+            
+            // Mock upload result
+            let photoId = photo["id"] as? String ?? "photo_\(index)"
+            let filename = photo["filename"] as? String ?? "unknown.jpg"
+            
+            // Simulate different upload outcomes
+            let randomOutcome = Int.random(in: 1...10)
+            
+            if randomOutcome <= 7 {
+                // 70% success rate
+                uploadResults.append([
+                    "photoId": photoId,
+                    "filename": filename,
+                    "status": "success",
+                    "uploadedAt": ISO8601DateFormatter().string(from: Date()),
+                    "url": "https://example.com/uploads/\(photoId).jpg",
+                    "fileSize": photo["fileSize"] ?? 0,
+                    "message": "Photo uploaded successfully"
+                ])
+                NSLog("✅ Photo \(filename) uploaded successfully")
+            } else if randomOutcome <= 9 {
+                // 20% skipped (duplicate)
+                uploadResults.append([
+                    "photoId": photoId,
+                    "filename": filename,
+                    "status": "skipped",
+                    "reason": "duplicate",
+                    "message": "Photo already uploaded to this event"
+                ])
+                NSLog("⏭️ Photo \(filename) skipped (duplicate)")
+            } else {
+                // 10% failure
+                uploadResults.append([
+                    "photoId": photoId,
+                    "filename": filename,
+                    "status": "failed",
+                    "error": "UPLOAD_FAILED",
+                    "message": "Network error during upload"
+                ])
+                NSLog("❌ Photo \(filename) upload failed")
+            }
+            
+            // Simulate batch processing
+            if (index + 1) % batchSize == 0 {
+                NSLog("📦 Batch \((index + 1) / batchSize) completed")
+                // In real implementation, would wait for batch to complete
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds between batches
+            }
+        }
+        
+        NSLog("📤 Upload process completed for \(uploadResults.count) photos")
+        
+        return uploadResults
+    }
+}

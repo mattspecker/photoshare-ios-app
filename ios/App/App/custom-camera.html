@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Camera Preview</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        #camera-preview {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            background: #000;
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            z-index: 1000;
+        }
+        
+        .btn {
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            border-radius: 25px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            color: #000;
+        }
+        
+        .btn:hover {
+            background: rgba(255, 255, 255, 1);
+        }
+        
+        #status {
+            position: fixed;
+            top: 50px;
+            left: 20px;
+            right: 20px;
+            text-align: center;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="camera-preview"></div>
+    
+    <div id="status">
+        Initializing camera...
+    </div>
+    
+    <div id="controls">
+        <button class="btn" onclick="startCamera()">Start Camera</button>
+        <button class="btn" onclick="capturePhoto()">Capture</button>
+        <button class="btn" onclick="stopCamera()">Stop</button>
+    </div>
+
+    <script>
+        console.log('📷 Simple Camera Preview Loading...');
+        
+        let cameraStarted = false;
+        
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+        
+        function startCamera() {
+            console.log('📷 Attempting to start camera...');
+            updateStatus('Starting camera...');
+            
+            // Check if we're in Capacitor
+            if (window.Capacitor && window.Capacitor.Plugins) {
+                console.log('✅ Capacitor available');
+                console.log('Plugins:', Object.keys(window.Capacitor.Plugins));
+                
+                // Check for CameraPreview plugin
+                if (window.Capacitor.Plugins.CameraPreview) {
+                    console.log('✅ CameraPreview plugin found');
+                    
+                    const options = {
+                        position: 'rear',
+                        parent: 'camera-preview',
+                        className: 'cameraPreview',
+                        width: window.innerWidth,
+                        height: window.innerHeight,
+                        x: 0,
+                        y: 0,
+                        toBack: true,
+                        alpha: 1,
+                        enableOpacity: true,
+                        disableAudio: true
+                    };
+                    
+                    console.log('📷 Starting camera with options:', options);
+                    
+                    window.Capacitor.Plugins.CameraPreview.start(options)
+                        .then(() => {
+                            console.log('✅ Camera started successfully');
+                            updateStatus('Camera started - preview should be visible');
+                            cameraStarted = true;
+                        })
+                        .catch((error) => {
+                            console.error('❌ Failed to start camera:', error);
+                            updateStatus('Failed to start camera: ' + error.message);
+                        });
+                } else {
+                    console.log('❌ CameraPreview plugin not found');
+                    updateStatus('CameraPreview plugin not available');
+                }
+            } else {
+                console.log('❌ Capacitor not available');
+                updateStatus('Capacitor not available');
+            }
+        }
+        
+        function capturePhoto() {
+            console.log('📷 Attempting to capture photo...');
+            
+            if (!cameraStarted) {
+                updateStatus('Please start camera first');
+                return;
+            }
+            
+            if (window.Capacitor && window.Capacitor.Plugins.CameraPreview) {
+                const options = {
+                    quality: 90,
+                    format: 'jpeg'
+                };
+                
+                window.Capacitor.Plugins.CameraPreview.capture(options)
+                    .then((result) => {
+                        console.log('✅ Photo captured:', result);
+                        updateStatus('Photo captured successfully!');
+                        
+                        // Here we could process the photo or send it back
+                        // For now, just log the result
+                    })
+                    .catch((error) => {
+                        console.error('❌ Failed to capture photo:', error);
+                        updateStatus('Failed to capture photo: ' + error.message);
+                    });
+            }
+        }
+        
+        function stopCamera() {
+            console.log('📷 Stopping camera...');
+            
+            if (window.Capacitor && window.Capacitor.Plugins.CameraPreview) {
+                window.Capacitor.Plugins.CameraPreview.stop()
+                    .then(() => {
+                        console.log('✅ Camera stopped');
+                        updateStatus('Camera stopped');
+                        cameraStarted = false;
+                    })
+                    .catch((error) => {
+                        console.error('❌ Failed to stop camera:', error);
+                        updateStatus('Failed to stop camera: ' + error.message);
+                    });
+            }
+        }
+        
+        // Auto-start camera when page loads
+        window.addEventListener('load', () => {
+            console.log('📷 Page loaded, checking for Capacitor...');
+            
+            // Give Capacitor a moment to initialize
+            setTimeout(() => {
+                startCamera();
+            }, 500);
+        });
+    </script>
+</body>
+</html>
