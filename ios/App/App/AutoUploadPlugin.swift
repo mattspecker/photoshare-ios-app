@@ -574,7 +574,7 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         return success
     }
     
-    /// Perform actual photo upload to API
+    /// Perform actual photo upload to API with enhanced metadata generation
     private func performPhotoUpload(localIdentifier: String, eventId: String, jwtToken: String) async -> Bool {
         // Get additional photo metadata
         let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
@@ -583,8 +583,13 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             return false
         }
         
+        NSLog("🔍 Generating enhanced metadata for photo: \(localIdentifier)")
+        
+        // Generate enhanced metadata with hashes and EXIF data
+        let enhancedMetadata = await generateEnhancedPhotoMetadata(for: asset)
+        
         // Create a photo dictionary with all required metadata
-        let photo: [String: Any] = [
+        var photo: [String: Any] = [
             "localIdentifier": localIdentifier,
             "filename": "IMG_\(localIdentifier.suffix(8)).jpg",
             "id": localIdentifier,
@@ -592,6 +597,14 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             "pixelWidth": asset.pixelWidth,
             "pixelHeight": asset.pixelHeight
         ]
+        
+        // Merge enhanced metadata
+        for (key, value) in enhancedMetadata {
+            photo[key] = value
+        }
+        
+        NSLog("📋 Enhanced metadata generated: file_hash=\(photo["file_hash"] as? String ?? "nil"), perceptual_hash=\(photo["perceptual_hash"] as? String ?? "nil")")
+        NSLog("📋 EXIF data: camera=\(photo["cameraMake"] as? String ?? "nil") \(photo["cameraModel"] as? String ?? "nil")")
         
         // Use the existing uploadSinglePhoto implementation
         let result = await uploadSinglePhoto(
@@ -762,6 +775,186 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         
         NSLog("⚠️ Auth bridge timeout after \(maxWaitSeconds)s")
         return false
+    }
+    
+    /// Generate enhanced photo metadata including hashes and EXIF data
+    private func generateEnhancedPhotoMetadata(for asset: PHAsset) async -> [String: Any] {
+        var metadata: [String: Any] = [:]
+        
+        // Get image data for hash generation
+        let imageData = await getImageDataForAsset(asset)
+        
+        if let data = imageData {
+            NSLog("📊 Generating file_hash for \(data.count) bytes")
+            
+            // Generate file_hash (SHA-256 of file content)
+            let fileHash = generateSHA256Hash(from: data)
+            metadata["file_hash"] = fileHash
+            metadata["fileHash"] = fileHash // Keep existing field for compatibility
+            
+            // Generate perceptual_hash for visual duplicate detection
+            if let perceptualHash = await generatePerceptualHashFromData(data) {
+                metadata["perceptual_hash"] = perceptualHash
+                NSLog("📸 Generated perceptual_hash: \(perceptualHash)")
+            } else {
+                NSLog("⚠️ Failed to generate perceptual_hash")
+            }
+            
+            // Add file size
+            metadata["file_size_bytes"] = data.count
+        } else {
+            NSLog("❌ Failed to get image data for metadata generation")
+        }
+        
+        // Extract EXIF metadata
+        let exifData = await extractEXIFMetadata(for: asset)
+        for (key, value) in exifData {
+            metadata[key] = value
+        }
+        
+        // Add creation date in ISO format
+        if let creationDate = asset.creationDate {
+            let isoFormatter = ISO8601DateFormatter()
+            metadata["dateTaken"] = isoFormatter.string(from: creationDate)
+        }
+        
+        // Add image dimensions
+        metadata["imageWidth"] = asset.pixelWidth
+        metadata["imageHeight"] = asset.pixelHeight
+        
+        return metadata
+    }
+    
+    /// Get image data for hash generation
+    private func getImageDataForAsset(_ asset: PHAsset) async -> Data? {
+        return await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.isSynchronous = false
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            
+            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
+                continuation.resume(returning: data)
+            }
+        }
+    }
+    
+    /// Generate SHA-256 hash from image data
+    private func generateSHA256Hash(from data: Data) -> String {
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+    
+    /// Generate perceptual hash from image data
+    private func generatePerceptualHashFromData(_ data: Data) async -> String? {
+        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            guard let image = UIImage(data: data) else {
+                continuation.resume(returning: nil)
+                return
+            }
+            
+            // Generate a simple perceptual hash from the image
+            if let perceptualHash = self.generateSimplePerceptualHash(for: image) {
+                continuation.resume(returning: perceptualHash)
+            } else {
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+    
+    /// Generate a simple perceptual hash from UIImage
+    private func generateSimplePerceptualHash(for image: UIImage) -> String? {
+        // Resize image to 8x8 for perceptual hash
+        let size = CGSize(width: 8, height: 8)
+        UIGraphicsBeginImageContextWithOptions(size, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: size))
+        guard let resizedImage = UIGraphicsGetImageFromCurrentImageContext() else {
+            UIGraphicsEndImageContext()
+            return nil
+        }
+        UIGraphicsEndImageContext()
+        
+        // Convert to grayscale and get pixel data
+        guard let cgImage = resizedImage.cgImage,
+              let dataProvider = cgImage.dataProvider,
+              let pixelData = dataProvider.data else {
+            return nil
+        }
+        
+        let data = CFDataGetBytePtr(pixelData)
+        var hash: UInt64 = 0
+        
+        // Calculate average pixel value
+        var total: Int = 0
+        for i in 0..<64 {
+            let pixelIndex = i * 4 // RGBA
+            total += Int(data![pixelIndex]) // Red channel for grayscale
+        }
+        let average = total / 64
+        
+        // Generate hash based on pixels above/below average
+        for i in 0..<64 {
+            let pixelIndex = i * 4
+            if Int(data![pixelIndex]) > average {
+                hash |= (1 << i)
+            }
+        }
+        
+        return String(format: "%016llx", hash)
+    }
+    
+    /// Extract EXIF metadata from asset
+    private func extractEXIFMetadata(for asset: PHAsset) async -> [String: Any] {
+        return await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.isSynchronous = false
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            
+            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
+                var exifData: [String: Any] = [:]
+                
+                // Extract camera information from asset (iOS provides limited EXIF access)
+                // Note: Full EXIF extraction requires ImageIO framework for more detailed metadata
+                
+                // Try to get camera make/model if available
+                if let imageSource = data.flatMap({ CGImageSourceCreateWithData($0 as CFData, nil) }),
+                   let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] {
+                    
+                    // Extract EXIF data
+                    if let exifDict = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] {
+                        if let cameraMake = exifDict[kCGImagePropertyExifLensMake] as? String {
+                            exifData["cameraMake"] = cameraMake
+                        }
+                        if let cameraModel = exifDict[kCGImagePropertyExifLensModel] as? String {
+                            exifData["cameraModel"] = cameraModel
+                        }
+                    }
+                    
+                    // Extract TIFF data (often contains camera info)
+                    if let tiffDict = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+                        if let make = tiffDict[kCGImagePropertyTIFFMake] as? String {
+                            exifData["cameraMake"] = make
+                        }
+                        if let model = tiffDict[kCGImagePropertyTIFFModel] as? String {
+                            exifData["cameraModel"] = model
+                        }
+                    }
+                }
+                
+                // Add device info as fallback
+                if exifData["cameraMake"] == nil {
+                    exifData["cameraMake"] = "Apple"
+                }
+                if exifData["cameraModel"] == nil {
+                    exifData["cameraModel"] = UIDevice.current.model
+                }
+                
+                NSLog("📷 Extracted EXIF: make=\(exifData["cameraMake"] as? String ?? "nil"), model=\(exifData["cameraModel"] as? String ?? "nil")")
+                
+                continuation.resume(returning: exifData)
+            }
+        }
     }
     
     /// Check if auth bridge is ready
@@ -2590,7 +2783,49 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             formData.append("\(isoDate)\r\n".data(using: .utf8)!)
         }
         
-        // Add device photo hash if available
+        // Add file_hash (SHA-256 of file content)
+        if let fileHash = photo["file_hash"] as? String, !fileHash.isEmpty {
+            formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+            formData.append("Content-Disposition: form-data; name=\"file_hash\"\r\n\r\n".data(using: .utf8)!)
+            formData.append("\(fileHash)\r\n".data(using: .utf8)!)
+        }
+        
+        // Add perceptual_hash for visual duplicate detection
+        if let perceptualHash = photo["perceptual_hash"] as? String, !perceptualHash.isEmpty {
+            formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+            formData.append("Content-Disposition: form-data; name=\"perceptual_hash\"\r\n\r\n".data(using: .utf8)!)
+            formData.append("\(perceptualHash)\r\n".data(using: .utf8)!)
+        }
+        
+        // Add EXIF metadata: cameraMake
+        if let cameraMake = photo["cameraMake"] as? String, !cameraMake.isEmpty {
+            formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+            formData.append("Content-Disposition: form-data; name=\"cameraMake\"\r\n\r\n".data(using: .utf8)!)
+            formData.append("\(cameraMake)\r\n".data(using: .utf8)!)
+        }
+        
+        // Add EXIF metadata: cameraModel
+        if let cameraModel = photo["cameraModel"] as? String, !cameraModel.isEmpty {
+            formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+            formData.append("Content-Disposition: form-data; name=\"cameraModel\"\r\n\r\n".data(using: .utf8)!)
+            formData.append("\(cameraModel)\r\n".data(using: .utf8)!)
+        }
+        
+        // Add dateTaken (ISO format)
+        if let dateTaken = photo["dateTaken"] as? String, !dateTaken.isEmpty {
+            formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+            formData.append("Content-Disposition: form-data; name=\"dateTaken\"\r\n\r\n".data(using: .utf8)!)
+            formData.append("\(dateTaken)\r\n".data(using: .utf8)!)
+        }
+        
+        // Add file size
+        if let fileSize = photo["file_size_bytes"] as? Int {
+            formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+            formData.append("Content-Disposition: form-data; name=\"file_size_bytes\"\r\n\r\n".data(using: .utf8)!)
+            formData.append("\(fileSize)\r\n".data(using: .utf8)!)
+        }
+        
+        // Keep device_photo_hash for backward compatibility
         if let fileHash = photo["fileHash"] as? String, !fileHash.isEmpty {
             formData.append("--\(boundary)\r\n".data(using: .utf8)!)
             formData.append("Content-Disposition: form-data; name=\"device_photo_hash\"\r\n\r\n".data(using: .utf8)!)

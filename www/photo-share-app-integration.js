@@ -51,6 +51,9 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
                 // Hook into PhotoEditor for crop tool upload integration  
                 this.hookIntoPhotoEditor();
                 
+                // Hook into photo galleries for native viewer
+                this.hookIntoPhotoGalleries();
+                
                 // Do NOT hook into Camera.getPhoto - let website work normally
                 
                 if (this.eventPhotoPicker) {
@@ -234,6 +237,101 @@ console.log('🔧 Capacitor available:', !!window.Capacitor);
                     console.warn('⚠️ Camera.getPhoto not found after 10 seconds');
                 }, 10000);
             }
+        }
+
+        /**
+         * Hook into native gallery for photo viewing
+         */
+        hookIntoPhotoGalleries() {
+            console.log('🖼️ Setting up native gallery integration...');
+            
+            // Wait for DOM to be ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => this.setupGalleryHooks());
+            } else {
+                this.setupGalleryHooks();
+            }
+        }
+
+        setupGalleryHooks() {
+            console.log('🔍 Looking for photo galleries on the page...');
+            
+            // Check if NativeGallery plugin is available
+            const nativeGallery = window.Capacitor?.Plugins?.NativeGallery;
+            if (!nativeGallery) {
+                console.log('⚠️ NativeGallery plugin not available - using web gallery');
+                return;
+            }
+            
+            console.log('✅ NativeGallery plugin available - setting up hooks');
+            
+            // Monitor for image clicks (event delegation for dynamic content)
+            document.addEventListener('click', async (e) => {
+                // Check if clicked element is an image in a gallery
+                const img = e.target.closest('img');
+                if (!img) return;
+                
+                // Check if the image is part of a photo gallery
+                const gallery = img.closest('[data-gallery], .photo-gallery, .event-gallery, .swiper-wrapper');
+                if (!gallery) return;
+                
+                // Prevent default action
+                e.preventDefault();
+                e.stopPropagation();
+                
+                console.log('📸 Gallery image clicked - opening native viewer');
+                
+                // Get all images in the gallery
+                const images = gallery.querySelectorAll('img');
+                const photos = Array.from(images).map((img, index) => ({
+                    url: img.src || img.dataset.src,
+                    title: img.alt || `Photo ${index + 1}`,
+                    id: img.dataset.photoId || `${index}`
+                }));
+                
+                // Find the index of the clicked image
+                const clickedIndex = Array.from(images).indexOf(img);
+                
+                try {
+                    // Get current event data to include eventId
+                    const eventData = this.getCurrentEventData();
+                    
+                    // Open native gallery
+                    await nativeGallery.openGallery({
+                        photos: photos,
+                        startIndex: clickedIndex >= 0 ? clickedIndex : 0,
+                        eventId: eventData?.eventId || 'unknown'
+                    });
+                    
+                    console.log('✅ Native gallery opened successfully');
+                } catch (error) {
+                    console.error('❌ Error opening native gallery:', error);
+                    // Fall back to web gallery
+                    window.location.href = img.src;
+                }
+            });
+            
+            // Add listener for photo report events from native gallery
+            if (nativeGallery.addListener) {
+                nativeGallery.addListener('photoReported', (data) => {
+                    console.log('🚩 Photo reported from native gallery:', data.photoId);
+                    
+                    // Call website's report handler if available
+                    if (window.handlePhotoReport) {
+                        window.handlePhotoReport(data.photoId);
+                    } else if (window.reportPhoto) {
+                        window.reportPhoto(data.photoId);
+                    } else {
+                        // Trigger custom event for the website to handle
+                        const event = new CustomEvent('photoReported', {
+                            detail: { photoId: data.photoId }
+                        });
+                        document.dispatchEvent(event);
+                    }
+                });
+            }
+            
+            console.log('✅ Native gallery hooks installed');
         }
 
         /**

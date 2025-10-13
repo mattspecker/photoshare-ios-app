@@ -112,16 +112,71 @@ Since the app loads `https://photo-share.app`, ensure:
 2. Website properly loads in mobile Safari
 3. All Capacitor plugins are properly initialized on your website
 
+## Critical Post-Sync Configuration
+
+⚠️ **IMPORTANT**: After running `npx cap sync ios`, you **MUST** manually restore custom plugins in Xcode because Capacitor sync removes them from `ios/App/App/capacitor.config.json`.
+
+### Manual Steps Required After Each Sync:
+
+1. **Open `ios/App/App/capacitor.config.json` in Xcode**
+
+2. **Add custom plugins to `packageClassList` array:**
+
+```json
+"packageClassList": [
+  "SignInWithApple",
+  "DatePickerPlugin", 
+  "PhotoViewerPlugin",
+  "FirebaseAppPlugin",
+  "FirebaseAuthenticationPlugin",
+  "FirebaseMessagingPlugin",
+  "AppPlugin",
+  "CAPCameraPlugin",
+  "DevicePlugin",
+  "DialogPlugin",
+  "FileTransferPlugin",
+  "FilesystemPlugin",
+  "HapticsPlugin",
+  "KeyboardPlugin",
+  "PreferencesPlugin",
+  "PushNotificationsPlugin",
+  "StatusBarPlugin",
+  "EventPhotoPicker",
+  "UploadManager",
+  "PhotoLibraryMonitor",
+  "QRScanner",
+  "AppPermissionPlugin",
+  "PhotoEditorPlugin",
+  "AutoUploadPlugin",
+  "UploadStatusOverlay",
+  "CustomCameraPlugin",
+  "NativeGalleryPlugin",
+  "BulkDownloadPlugin"
+]
+```
+
+3. **Save the file in Xcode before building**
+
+### Custom Plugins Documentation:
+
+- **BulkDownloadPlugin**: Multi-photo download with progress tracking and native gallery storage
+- **EventPhotoPicker**: Event-aware photo selection with date filtering
+- **NativeGalleryPlugin**: Enhanced gallery with download/share capabilities
+- **AutoUploadPlugin**: Background photo upload monitoring
+- See individual plugin `.md` files for detailed implementation guides
+
 ## Quick Commands
 
 ```bash
 # Sync any config changes
 npm run ios:sync
 
-# Open in Xcode
+# Open in Xcode  
 npm run ios:open
 
 # Run on device/simulator
 npm run ios:run
 ```
+
+**Remember**: Always restore `packageClassList` after sync before building!
 

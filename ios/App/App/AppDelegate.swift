@@ -36,6 +36,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = AutoUploadPlugin.self
         _ = UploadStatusOverlay.self
         _ = CustomCameraPlugin.self
+        _ = NativeGalleryPlugin.self
+        _ = BulkDownloadPlugin.self // TODO: Add to Xcode project
         print("✅ Custom plugin classes loaded for packageClassList discovery")
         
         // Debug Firebase configuration

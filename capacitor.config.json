@@ -50,7 +50,15 @@
     "PhotoEditorPlugin": {},
     "AutoUploadPlugin": {},
     "UploadStatusOverlay": {},
-    "CustomCameraPlugin": {}
+    "CustomCameraPlugin": {},
+    "NativeGalleryPlugin": {
+      "downloadEnabled": true,
+      "shareEnabled": true,
+      "customViewer": true
+    },
+    "BulkDownloadPlugin": {
+      "enabled": true
+    }
   },
   "ios": {
     "scheme": "App",
@@ -84,6 +92,8 @@
     "PhotoEditorPlugin",
     "AutoUploadPlugin",
     "UploadStatusOverlay",
-    "CustomCameraPlugin"
+    "CustomCameraPlugin",
+    "NativeGalleryPlugin",
+    "BulkDownloadPlugin"
   ]
 }
