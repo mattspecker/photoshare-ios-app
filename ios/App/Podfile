@@ -38,6 +38,11 @@ target 'App' do
   pod 'CapacitorFirebaseAuthentication/Google', :path => '../../node_modules/@capacitor-firebase/authentication'
 end
 
+target 'NotificationService' do
+  # Direct Firebase Messaging for rich notifications (not Capacitor wrapper)
+  pod 'Firebase/Messaging'
+end
+
 post_install do |installer|
   assertDeploymentTarget(installer)
 end

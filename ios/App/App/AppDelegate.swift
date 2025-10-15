@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import FirebaseCore
+import FirebaseMessaging
 import GoogleSignIn
 import WebKit
 import UserNotifications
@@ -18,9 +19,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Override point for customization after application launch.
         FirebaseApp.configure()
         
+        // Configure Firebase Messaging for FCM tokens
+        print("🔔 [FCM] Configuring Firebase Messaging...")
+        
         // Configure notification center for rich notifications
         UNUserNotificationCenter.current().delegate = self
         print("✅ UNUserNotificationCenter delegate configured for rich notifications")
+        
+        // Configure messaging delegate (will be set by FCMTokenPlugin)
+        print("🔔 [FCM] Firebase Messaging will be configured by FCMTokenPlugin")
         
         // Debug plugin registration
         print("🔍 AppDelegate: App launching with custom plugins")
@@ -31,13 +38,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ = UploadManager.self
         _ = PhotoLibraryMonitor.self
         _ = QRScanner.self
-        _ = AppPermissionPlugin.self
+        _ = AppPermissions.self
         _ = PhotoEditorPlugin.self
         _ = AutoUploadPlugin.self
         _ = UploadStatusOverlay.self
         _ = CustomCameraPlugin.self
         _ = NativeGalleryPlugin.self
         _ = BulkDownloadPlugin.self // TODO: Add to Xcode project
+        _ = FCMTokenPlugin.self
         print("✅ Custom plugin classes loaded for packageClassList discovery")
         
         // Debug Firebase configuration
@@ -703,6 +711,42 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // but if you want the App API to support tracking app url opens, make sure to keep this call
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
+    
+    // MARK: - Remote Notifications for FCM
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        print("🔔 [FCM] Device registered for remote notifications")
+        print("🔔 [FCM] Device token: \(deviceToken.map { String(format: "%02.2hhx", $0) }.joined())")
+        
+        // Set APNS token for Firebase Messaging
+        Messaging.messaging().apnsToken = deviceToken
+        print("🔔 [FCM] APNS token set in Firebase Messaging")
+        
+        // Force FCM token generation after APNS token is set
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            print("🔔 [FCM] Requesting FCM token after APNS registration...")
+            Messaging.messaging().token { token, error in
+                if let error = error {
+                    print("❌ [FCM] Error getting FCM token: \(error.localizedDescription)")
+                } else if let token = token {
+                    print("✅ [FCM] FCM token received after APNS: \(token.prefix(20))...")
+                    print("🔔 [FCM] Token length: \(token.count) characters")
+                    
+                    // Notify FCMTokenPlugin about the token
+                    NotificationCenter.default.post(
+                        name: Notification.Name("FCMTokenReceived"),
+                        object: nil,
+                        userInfo: ["token": token]
+                    )
+                } else {
+                    print("❌ [FCM] No FCM token received after APNS")
+                }
+            }
+        }
+    }
+    
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("❌ [FCM] Failed to register for remote notifications: \(error.localizedDescription)")
+    }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
         // Called when the app was launched with an activity, including Universal Links.
@@ -805,6 +849,12 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         print("🔔 Received notification in foreground: \(notification.request.content.title)")
         print("🔔 Notification body: \(notification.request.content.body)")
         print("🔔 Notification attachments: \(notification.request.content.attachments.count)")
+        
+        // DEBUG: Log the complete notification payload
+        print("🐛 [NOTIFICATION DEBUG] Complete userInfo payload:")
+        for (key, value) in notification.request.content.userInfo {
+            print("🐛   \(key): \(value)")
+        }
         
         // Log attachment details
         for (index, attachment) in notification.request.content.attachments.enumerated() {

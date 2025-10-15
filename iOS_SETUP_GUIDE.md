@@ -112,6 +112,40 @@ Since the app loads `https://photo-share.app`, ensure:
 2. Website properly loads in mobile Safari
 3. All Capacitor plugins are properly initialized on your website
 
+## FCM Token & Push Notifications Setup
+
+### Firebase Configuration Requirements
+
+1. **Firebase Messaging Import**: Ensure `import FirebaseMessaging` is added to AppDelegate.swift
+2. **APNS Token Handling**: AppDelegate includes remote notification delegate methods
+3. **FCM Token Plugin**: Handles authentication retry logic and Supabase integration
+
+### FCM Token Registration Flow
+
+The iOS FCMTokenPlugin is streamlined for web integration:
+
+- **Token Generation**: iOS generates FCM token when permissions granted
+- **Dual Storage**: Stores in both UserDefaults (iOS) and localStorage (web access)
+- **Web Authentication**: Web handles authentication retry via `onAuthStateChange` listener
+- **Automatic Retry**: Web detects tokens in localStorage and registers when user authenticates
+
+### JavaScript API Usage
+
+```javascript
+// Get FCM token
+const result = await FCMTokenPlugin.getFCMToken();
+console.log('FCM Token:', result.token);
+
+// Register with authentication retry (automatic on app launch)
+const registration = await FCMTokenPlugin.registerFCMTokenWithAuth();
+
+// Initialize FCM (alias for registerFCMTokenWithAuth)
+await FCMTokenPlugin.initializeFCM();
+
+// Get stored token
+const stored = await FCMTokenPlugin.getStoredToken();
+```
+
 ## Critical Post-Sync Configuration
 
 ⚠️ **IMPORTANT**: After running `npx cap sync ios`, you **MUST** manually restore custom plugins in Xcode because Capacitor sync removes them from `ios/App/App/capacitor.config.json`.
@@ -145,7 +179,8 @@ Since the app loads `https://photo-share.app`, ensure:
   "UploadManager",
   "PhotoLibraryMonitor",
   "QRScanner",
-  "AppPermissionPlugin",
+  "AppPermissions",
+  "FCMTokenPlugin",
   "PhotoEditorPlugin",
   "AutoUploadPlugin",
   "UploadStatusOverlay",
@@ -159,6 +194,8 @@ Since the app loads `https://photo-share.app`, ensure:
 
 ### Custom Plugins Documentation:
 
+- **AppPermissions**: Cross-platform permission management (replaces AppPermissionPlugin)
+- **FCMTokenPlugin**: Firebase Cloud Messaging token registration with authentication retry logic
 - **BulkDownloadPlugin**: Multi-photo download with progress tracking and native gallery storage
 - **EventPhotoPicker**: Event-aware photo selection with date filtering
 - **NativeGalleryPlugin**: Enhanced gallery with download/share capabilities
@@ -179,4 +216,36 @@ npm run ios:run
 ```
 
 **Remember**: Always restore `packageClassList` after sync before building!
+
+## Testing Commands
+
+### FCM Token Testing
+```javascript
+// Test FCM plugin availability
+console.log('FCM Plugin:', window.Capacitor?.Plugins?.FCMTokenPlugin);
+
+// Get current FCM token
+await FCMTokenPlugin.getFCMToken();
+
+// Test authentication retry registration
+await FCMTokenPlugin.initializeFCM();
+
+// Check stored token
+await FCMTokenPlugin.getStoredToken();
+```
+
+### Permission Testing
+```javascript
+// Test AppPermissions plugin
+const AppPermissions = window.Capacitor?.Plugins?.AppPermissions;
+
+// Check all permissions
+await AppPermissions.checkNotificationPermission();
+await AppPermissions.checkCameraPermission();
+await AppPermissions.checkPhotoPermission();
+
+// Test onboarding state
+await AppPermissions.isFirstLaunch();
+await AppPermissions.hasCompletedOnboarding();
+```
 
