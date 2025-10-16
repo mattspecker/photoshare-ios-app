@@ -11,7 +11,7 @@ import UserNotifications
 // but we'll reference them to ensure they compile
 
 @UIApplicationMain
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
     var window: UIWindow?
 
@@ -702,6 +702,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        // Handle photoshare:// deep links
+        if url.scheme == "photoshare" {
+            print("🔗 [AppDelegate] Handling PhotoShare deep link: \(url)")
+            
+            // Notify Capacitor plugins about the URL
+            NotificationCenter.default.post(name: .capacitorOpenURL, object: url)
+            
+            // Also let Capacitor handle it normally
+            return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        }
+        
         // Handle Google Sign-In callback
         if GIDSignIn.sharedInstance.handle(url) {
             return true
@@ -746,6 +757,67 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         print("❌ [FCM] Failed to register for remote notifications: \(error.localizedDescription)")
+    }
+    
+    // MARK: - Push Notification Deep Link Handling
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        print("📱 [PUSH] Received remote notification")
+        
+        // Process deep links using the updated helper method
+        processPushNotificationDeepLink(userInfo)
+        
+        // Let Firebase handle it
+        Messaging.messaging().appDidReceiveMessage(userInfo)
+        
+        completionHandler(.newData)
+    }
+    
+    private func handleDeepLinkFromNotification(_ deepLink: String) {
+        print("🔗 [PUSH] Processing deep link from notification:", deepLink)
+        NSLog("🔗 [AppDelegate] handleDeepLinkFromNotification called with: \(deepLink)")
+        
+        // Create URL from deep link string
+        if let url = URL(string: deepLink) {
+            NSLog("🔗 [AppDelegate] Valid URL created: \(url)")
+            
+            // Use the existing application:open:options: handler which already works
+            // This method at line 704 already handles photoshare:// URLs correctly
+            DispatchQueue.main.async {
+                // Call the existing URL handler that's already working for deep links
+                _ = self.application(UIApplication.shared, open: url, options: [:])
+                NSLog("🔗 [AppDelegate] Called existing application:open:options: handler")
+            }
+        } else {
+            NSLog("🔗 [AppDelegate] Failed to create valid URL from: \(deepLink)")
+        }
+    }
+    
+    private func notifyWebViewOfDeepLink(_ url: URL) {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first,
+              let bridgeVC = window.rootViewController as? CAPBridgeViewController,
+              let webView = bridgeVC.webView else {
+            print("❌ [PUSH] WebView not available to handle deep link")
+            return
+        }
+        
+        let script = """
+            console.log('🔗 [iOS Push] Received deep link: \(url.absoluteString)');
+            if (window.handlePhotoShareDeepLink) {
+                window.handlePhotoShareDeepLink('\(url.absoluteString)');
+            } else {
+                console.log('⏳ [iOS Push] handlePhotoShareDeepLink not found, storing for later');
+                window._pendingDeepLink = '\(url.absoluteString)';
+            }
+        """
+        
+        webView.evaluateJavaScript(script) { result, error in
+            if let error = error {
+                print("❌ [PUSH] Error notifying web of deep link:", error)
+            } else {
+                print("✅ [PUSH] Web notified of deep link")
+            }
+        }
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
@@ -839,7 +911,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 // MARK: - UNUserNotificationCenterDelegate for Rich Notifications
 
-extension AppDelegate: UNUserNotificationCenterDelegate {
+extension AppDelegate {
     
     // Handle notifications when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter, 
@@ -862,7 +934,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
         
         // Show notification even when app is in foreground (important for rich notifications)
-        completionHandler([.alert, .badge, .sound])
+        completionHandler([.banner, .badge, .sound])
     }
     
     // Handle notification tap
@@ -876,6 +948,9 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // Handle notification tap (navigate to specific screen, etc.)
         let userInfo = response.notification.request.content.userInfo
         
+        // Process deep links from push notifications
+        processPushNotificationDeepLink(userInfo)
+        
         // Extract event_id or other data for navigation
         if let eventId = userInfo["event_id"] as? String {
             print("📱 Notification contains event_id: \(eventId)")
@@ -887,10 +962,171 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         
         completionHandler()
     }
+    
+    // MARK: - Additional Deep Link Handling
+    
+    // Helper method to process deep links from push notifications
+    private func processPushNotificationDeepLink(_ userInfo: [AnyHashable: Any]) {
+        print("📱 [PUSH] Processing push notification data")
+        print("📱 [PUSH] Full userInfo:", userInfo)
+        
+        // Check for deep link in various locations based on FCM payload structure
+        
+        // 1. Check "deepLink" (without underscore) at root level - YOUR CURRENT FORMAT
+        if let deepLink = userInfo["deepLink"] as? String {
+            print("🔗 [PUSH] Found deepLink at root level:", deepLink)
+            
+            // Log additional context if available
+            if let eventId = userInfo["eventId"] as? String {
+                print("📱 [PUSH] Event ID:", eventId)
+            }
+            if let action = userInfo["action"] as? String {
+                print("📱 [PUSH] Action:", action)
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.handleDeepLinkFromNotification(deepLink)
+            }
+            return
+        }
+        
+        // 2. Check "deep_link" (with underscore) for backwards compatibility
+        if let deepLink = userInfo["deep_link"] as? String {
+            print("🔗 [PUSH] Found deep_link at root level:", deepLink)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.handleDeepLinkFromNotification(deepLink)
+            }
+            return
+        }
+        
+        // 2. Check in sentPayload (your current structure)
+        if let sentPayload = userInfo["sentPayload"] as? [String: Any] {
+            print("📱 [PUSH] Found sentPayload:", sentPayload)
+            
+            if let deepLink = sentPayload["deepLink"] as? String {
+                print("🔗 [PUSH] Found deepLink in sentPayload:", deepLink)
+                
+                // Also log additional context if available
+                if let eventId = sentPayload["eventId"] as? String {
+                    print("📱 [PUSH] Event ID:", eventId)
+                }
+                if let eventName = sentPayload["eventName"] as? String {
+                    print("📱 [PUSH] Event Name:", eventName)
+                }
+                if let deepLinkType = sentPayload["deepLinkType"] as? String {
+                    print("📱 [PUSH] Deep Link Type:", deepLinkType)
+                }
+                
+                // Process the deep link
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.handleDeepLinkFromNotification(deepLink)
+                }
+                return
+            }
+        }
+        
+        // 3. Check FCM data fields (Firebase standard locations)
+        if let aps = userInfo["aps"] as? [String: Any] {
+            print("📱 [PUSH] APS data:", aps)
+        }
+        
+        if let fcmOptions = userInfo["fcm_options"] as? [String: Any] {
+            print("📱 [PUSH] FCM options:", fcmOptions)
+            if let link = fcmOptions["link"] as? String {
+                print("🔗 [PUSH] Found link in fcm_options:", link)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.handleDeepLinkFromNotification(link)
+                }
+                return
+            }
+        }
+        
+        // 4. Check for gcm.notification.deep_link (Firebase format)
+        if let gcmDeepLink = userInfo["gcm.notification.deep_link"] as? String {
+            print("🔗 [PUSH] Found gcm.notification.deep_link:", gcmDeepLink)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.handleDeepLinkFromNotification(gcmDeepLink)
+            }
+            return
+        }
+        
+        // 5. Check clickAction field (HTTPS URL format)
+        if let clickAction = userInfo["clickAction"] as? String {
+            print("🔗 [PUSH] Found clickAction URL:", clickAction)
+            
+            // Convert HTTPS URL to photoshare:// deep link
+            if let url = URL(string: clickAction) {
+                let pathComponents = url.pathComponents.filter { $0 != "/" }
+                
+                if pathComponents.contains("event"), 
+                   let eventIndex = pathComponents.firstIndex(of: "event"),
+                   eventIndex < pathComponents.count - 1 {
+                    let eventId = pathComponents[eventIndex + 1]
+                    let deepLink = "photoshare://event/\(eventId)"
+                    print("🔗 [PUSH] Converted clickAction to deep link:", deepLink)
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.handleDeepLinkFromNotification(deepLink)
+                    }
+                    return
+                }
+            }
+        }
+        
+        // 6. If no deep link found but we have event info, construct one
+        if let eventId = userInfo["eventId"] as? String {
+            print("📱 [PUSH] No explicit deep link, but found eventId - constructing link")
+            
+            let action = userInfo["action"] as? String ?? "view_event"
+            var constructedLink = "photoshare://"
+            
+            switch action {
+                case "view_event":
+                    constructedLink += "event/\(eventId)"
+                case "create":
+                    constructedLink += "create?eventId=\(eventId)"
+                default:
+                    constructedLink += "event/\(eventId)"
+            }
+            
+            print("🔗 [PUSH] Constructed deep link:", constructedLink)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.handleDeepLinkFromNotification(constructedLink)
+            }
+            return
+        }
+        
+        // Also check sentPayload for eventId fallback
+        if let sentPayload = userInfo["sentPayload"] as? [String: Any],
+           let eventId = sentPayload["eventId"] as? String,
+           let deepLinkType = sentPayload["deepLinkType"] as? String {
+            
+            print("📱 [PUSH] No explicit deep link, constructing from sentPayload event data")
+            var constructedLink = "photoshare://"
+            
+            switch deepLinkType {
+                case "event":
+                    constructedLink += "event/\(eventId)"
+                case "create":
+                    constructedLink += "create?eventId=\(eventId)"
+                default:
+                    constructedLink += "event/\(eventId)"
+            }
+            
+            print("🔗 [PUSH] Constructed deep link:", constructedLink)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.handleDeepLinkFromNotification(constructedLink)
+            }
+            return
+        }
+        
+        print("❌ [PUSH] No deep link found in notification payload")
+    }
 }
 
 // MARK: - Notification Name Extension
 
 extension Notification.Name {
     static let capacitorDidReceiveNotificationResponse = Notification.Name("capacitorDidReceiveNotificationResponse")
+    static let capacitorOpenURL = Notification.Name("capacitorOpenURL")
 }
