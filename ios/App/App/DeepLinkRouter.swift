@@ -5,7 +5,7 @@ import UIKit
  * DeepLinkRouter Plugin for PhotoShare iOS
  * Handles deep link navigation from push notifications and external sources
  */
-@objc(DeepLinkRouter)
+@objc(DeepLinkRouterPlugin)
 public class DeepLinkRouter: CAPPlugin {
     
     private var pendingDeepLink: String?

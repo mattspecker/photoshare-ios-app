@@ -23,6 +23,7 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - Properties
     private var uploadProgress: [String: Any] = [:]
+    private var lastResumeCheck: Date?
     
     // MARK: - Plugin Lifecycle
     override public func load() {
@@ -50,7 +51,19 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
     
     /// Called when app becomes active (resume from background)
     @objc private func appDidBecomeActive() {
-        NSLog("🔄 AutoUpload: App resumed - triggering auto Supabase token check")
+        NSLog("🔄 AutoUpload: App resumed - throttling auto token check")
+        
+        // Throttle resume events to prevent performance issues
+        let now = Date()
+        if let lastCheck = lastResumeCheck {
+            let timeSinceLastCheck = now.timeIntervalSince(lastCheck)
+            if timeSinceLastCheck < 10.0 { // Only run once every 10 seconds
+                NSLog("⏭️ AutoUpload: Skipping resume check (last check \(Int(timeSinceLastCheck))s ago)")
+                return
+            }
+        }
+        
+        lastResumeCheck = now
         Task {
             await triggerAutoSupabaseTokenCheck()
         }
@@ -68,31 +81,30 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        // Give the page a moment to initialize before checking auth bridge
-        NSLog("⏳ Giving page time to initialize...")
-        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second initial delay
-        
-        // Check global auto-upload settings FIRST before proceeding
-        NSLog("⚙️ Checking global auto-upload settings before proceeding...")
-        let globalSettings = await getGlobalAutoUploadSettings()
-        
-        // Check if auto-upload is globally disabled
-        if !globalSettings.isEnabled {
-            NSLog("❌ Auto-upload is globally disabled - stopping resume flow")
+        // Check photo permissions BEFORE starting any auto-upload flow
+        NSLog("📸 AutoUpload: Checking photo library permissions...")
+        let photoPermissionStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        switch photoPermissionStatus {
+        case .authorized:
+            NSLog("✅ Photo library access already granted")
+        case .notDetermined:
+            NSLog("⚠️ Photo library access not determined - auto-upload will request permission when scanning")
+        case .denied, .restricted:
+            NSLog("❌ Photo library access denied/restricted - skipping auto-upload")
+            return
+        case .limited:
+            NSLog("⚠️ Photo library access limited - auto-upload will work with available photos")
+        @unknown default:
+            NSLog("❌ Unknown photo library permission status - skipping auto-upload")
             return
         }
         
-        // Check WiFi-only requirement
-        if globalSettings.wifiOnly {
-            let isOnWiFi = await checkWiFiConnection()
-            if !isOnWiFi {
-                NSLog("❌ WiFi-only mode enabled but device is on cellular - stopping resume flow")
-                return
-            }
-            NSLog("✅ WiFi-only mode enabled and device is on WiFi")
-        }
+        // Give the page a moment to initialize before checking auth bridge
+        NSLog("⏳ Giving page time to initialize...")
+        try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 second initial delay
         
-        NSLog("✅ Global auto-upload settings validated - proceeding with token check")
+        // Simplified: Let web API handle all filtering logic 
+        NSLog("⚙️ Proceeding with auto-upload check (web API handles all filtering)")
         
         // Use efficient polling to wait for auth bridge readiness
         NSLog("⏳ Waiting for auth bridge to be ready...")
@@ -133,19 +145,19 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         uploadProgress["scanningMode"] = true
         saveUploadProgress()
         
-        // Step 1: Get all user events
+        // Step 1: Show "Getting Events" overlay first
+        NSLog("🎯 AUTO-RESUME: Showing Getting Events overlay...")
+        await showGettingEventsOverlay()
+        
+        // Step 2: Small delay to let "Getting Events" be visible
+        NSLog("🎯 AUTO-RESUME: Letting Getting Events display...")
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay to show getting events
+        
+        // Step 3: Get all user events while overlay is showing
         NSLog("🎯 AUTO-RESUME: Calling getUserEvents...")
         let events = await fetchUserEventsFromAPI(supabaseToken: supabaseToken, userId: userId)
-        NSLog("📊 AUTO-RESUME: Found \(events.count) events for auto-upload")
         
-        // Log event details for debugging
-        for (index, event) in events.enumerated() {
-            if let eventName = event["name"] as? String,
-               let eventId = event["event_id"] as? String,
-               let status = event["status"] as? String {
-                NSLog("📅 Event \(index + 1): '\(eventName)' (\(eventId)) - Status: \(status)")
-            }
-        }
+        NSLog("📊 AUTO-RESUME: Found \(events.count) events to process")
         
         // If no events, exit early
         if events.isEmpty {
@@ -153,15 +165,19 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        // Step 2: Show scanning overlay (persistent throughout all events)
-        NSLog("🔄 Starting scanning overlay for all events...")
+        // Log event details for debugging
+        for (index, event) in events.enumerated() {
+            if let eventName = event["name"] as? String,
+               let eventId = event["event_id"] as? String {
+                NSLog("📅 Event \(index + 1): '\(eventName)' (\(eventId))")
+            }
+        }
         
-        // Add a small delay to ensure the webview is ready
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
-        
+        // Step 4: Transition from "Getting Events" to "Scanning" 
+        NSLog("🔄 Transitioning to scanning overlay for all events...")
         await showScanningOverlayForAllEvents()
         
-        // Step 3: Process each event sequentially
+        // Step 5: Process each event sequentially
         for (index, event) in events.enumerated() {
             guard let eventName = event["name"] as? String,
                   let eventId = event["event_id"] as? String else {
@@ -196,11 +212,69 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         NSLog("🎯 Sequential event scanning flow completed - ready for upload phase")
     }
     
+    /// Hide the upload overlay
+    private func hideOverlay() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                self.bridge?.webView?.evaluateJavaScript("""
+                    (function() {
+                        console.log('❌ AutoUpload: Hiding overlay...');
+                        
+                        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                            window.Capacitor.Plugins.UploadStatusOverlay.hideOverlay();
+                            console.log('✅ AutoUpload: Overlay hidden');
+                            return { success: true };
+                        } else {
+                            console.log('❌ AutoUpload: UploadStatusOverlay not available');
+                            return { success: false, error: 'UploadStatusOverlay not available' };
+                        }
+                    })();
+                """) { _, _ in
+                    continuation.resume()
+                }
+            }
+        }
+    }
+    
+    /// Show "Getting Events" overlay at the start of auto-upload flow
+    private func showGettingEventsOverlay() async {
+        NSLog("🔧 showGettingEventsOverlay() called")
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                NSLog("🔧 Executing JavaScript for Getting Events overlay...")
+                self.bridge?.webView?.evaluateJavaScript("""
+                    (async function() {
+                        console.log('📥 AutoUpload: Showing Getting Events overlay...');
+                        
+                        console.log('🔍 AutoUpload: Checking UploadStatusOverlay availability...');
+                        console.log('window.Capacitor:', !!window.Capacitor);
+                        console.log('window.Capacitor.Plugins:', !!window.Capacitor?.Plugins);
+                        console.log('window.Capacitor.Plugins.UploadStatusOverlay:', !!window.Capacitor?.Plugins?.UploadStatusOverlay);
+                        
+                        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                            console.log('✅ AutoUpload: UploadStatusOverlay found, calling showOverlay...');
+                            const result = await window.Capacitor.Plugins.UploadStatusOverlay.showOverlay({
+                                mode: 'gettingEvent'
+                            });
+                            console.log('✅ AutoUpload: Getting Events overlay shown, result:', result);
+                            return { success: true };
+                        } else {
+                            console.log('❌ AutoUpload: UploadStatusOverlay not available');
+                            return { success: false, error: 'UploadStatusOverlay not available' };
+                        }
+                    })();
+                """) { _, _ in
+                    continuation.resume()
+                }
+            }
+        }
+    }
+    
     /// Show scanning overlay for processing all events
     private func showScanningOverlayForAllEvents() async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { [weak self] in
-                self?.bridge?.webView?.evaluateJavaScript("""
+            DispatchQueue.main.async {
+                self.bridge?.webView?.evaluateJavaScript("""
                     (function() {
                         console.log('🔍 AutoUpload: Starting sequential event scanning overlay...');
                         
@@ -213,40 +287,13 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                                 window.Capacitor.Plugins.UploadStatusOverlay.hideOverlay();
                             } catch (e) {}
                             
-                            // Show the overlay with custom title
+                            // Show the overlay with scanning mode
                             window.Capacitor.Plugins.UploadStatusOverlay.showOverlay({ 
-                                title: 'Scanning for photos...' 
+                                mode: 'scanning',
+                                eventName: 'All Events'
                             });
                             
-                            // Try different parameters to override the title
-                            console.log('🔍 Testing UploadStatusOverlay parameters...');
-                            
-                            // Try multiple approaches to change the title
-                            try {
-                                // Method 1: Try with title parameter
-                                window.Capacitor.Plugins.UploadStatusOverlay.updateProgress({
-                                    completed: 0,
-                                    total: 0,
-                                    title: 'Scanning for photos...',
-                                    message: 'Scanning for photos...',
-                                    status: 'scanning'
-                                });
-                                console.log('✅ Method 1: title parameter attempted');
-                            } catch (e) {
-                                console.log('❌ Method 1 failed:', e);
-                            }
-                            
-                            // Method 2: Try with different function if available
-                            setTimeout(() => {
-                                try {
-                                    if (window.Capacitor.Plugins.UploadStatusOverlay.setTitle) {
-                                        window.Capacitor.Plugins.UploadStatusOverlay.setTitle('Scanning for photos...');
-                                        console.log('✅ Method 2: setTitle attempted');
-                                    }
-                                } catch (e) {
-                                    console.log('❌ Method 2 failed:', e);
-                                }
-                            }, 100);
+                            // Mode is already set correctly above, no need for updateProgress calls
                             
                             console.log('✅ AutoUpload: Small scanning overlay started');
                             return { success: true, method: 'UploadStatusOverlay' };
@@ -350,8 +397,8 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Update scanning overlay message for current event
     private func updateScanningOverlayMessage(eventName: String, current: Int, total: Int) async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { [weak self] in
-                self?.bridge?.webView?.evaluateJavaScript("""
+            DispatchQueue.main.async {
+                self.bridge?.webView?.evaluateJavaScript("""
                     (function() {
                         console.log('🔄 AutoUpload: Updating scanning overlay for event: \(eventName)');
                         
@@ -364,13 +411,10 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
                             console.log('✅ AutoUpload: Updating small overlay for \(eventName)');
                             
-                            // Update with scanning message
-                            window.Capacitor.Plugins.UploadStatusOverlay.updateProgress({
-                                completed: 0,
-                                total: 0,
-                                title: 'Scanning \(eventName)...',
-                                message: 'Scanning \(eventName)...',
-                                status: 'scanning'
+                            // Update to scanning mode with real event name
+                            window.Capacitor.Plugins.UploadStatusOverlay.setMode({
+                                mode: 'scanning',
+                                eventName: '\(eventName)'
                             });
                             
                             console.log('✅ AutoUpload: Small overlay updated for \(eventName)');
@@ -402,21 +446,26 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
-    /// Update overlay to upload mode
+    /// Update overlay to upload mode (only if photos found)
     private func updateOverlayToUploadMode(eventName: String, total: Int) async {
+        // Only switch to upload mode if there are photos to upload
+        guard total > 0 else {
+            NSLog("📭 No photos to upload for \(eventName), keeping current overlay state")
+            return
+        }
+        
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { [weak self] in
-                self?.bridge?.webView?.evaluateJavaScript("""
+            DispatchQueue.main.async {
+                self.bridge?.webView?.evaluateJavaScript("""
                     (function() {
-                        console.log('📤 Switching to upload mode for \(eventName)...');
+                        console.log('📤 Switching to upload mode for \(eventName) with \(total) photos...');
                         
                         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
-                            // Update overlay to show upload progress
+                            // Switch directly to upload progress since we know there are photos
                             window.Capacitor.Plugins.UploadStatusOverlay.updateProgress({
                                 completed: 0,
                                 total: \(total),
-                                title: 'Uploading Photos',
-                                message: 'Uploading for \(eventName)'
+                                fileName: 'Preparing to upload for \(eventName)...'
                             });
                             
                             console.log('✅ Switched to upload mode (0/\(total))');
@@ -442,7 +491,9 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 continue
             }
             
-            NSLog("📤 Uploading photo \(index + 1)/\(total) for \(eventName)")
+            // Extract filename from photo data if available
+            let fileName = (photo["filename"] as? String) ?? "IMG_\(String(format: "%04d", index + 1)).jpg"
+            NSLog("📤 Uploading photo \(index + 1)/\(total) - \(fileName) for \(eventName)")
             
             // Get photo thumbnail and update overlay with it
             if let thumbnailData = await getPhotoThumbnail(localIdentifier: localIdentifier) {
@@ -509,13 +560,13 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                             window.Capacitor.Plugins.UploadStatusOverlay.updateProgress({
                                 completed: \(current),
                                 total: \(total),
-                                title: 'Uploading Photos',
-                                message: 'Uploading for \(eventName)'
+                                fileName: 'photo_\(current).jpg'
                             });
                             
                             // Add photo thumbnail
                             window.Capacitor.Plugins.UploadStatusOverlay.addPhoto({
-                                thumbnail: '\(base64Thumbnail)'
+                                thumbnail: '\(base64Thumbnail)',
+                                fileName: 'photo_\(current).jpg'
                             });
                         }
                         return true;
@@ -537,8 +588,7 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                             window.Capacitor.Plugins.UploadStatusOverlay.updateProgress({
                                 completed: \(current),
                                 total: \(total),
-                                title: 'Uploading Photos',
-                                message: 'Uploading for \(eventName)'
+                                fileName: 'photo_\(current).jpg'
                             });
                         }
                         return true;
@@ -751,6 +801,23 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             )
             
             NSLog("✅ Uploaded \(uploadedCount)/\(newPhotosCount) photos for \(eventName)")
+            
+            // Show completion state in overlay
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { [weak self] in
+                    self?.bridge?.webView?.evaluateJavaScript("""
+                        (function() {
+                            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                                window.Capacitor.Plugins.UploadStatusOverlay.setMode({
+                                    mode: 'complete'
+                                });
+                            }
+                        })();
+                    """) { _, _ in
+                        continuation.resume()
+                    }
+                }
+            }
         }
         
         return newPhotosCount
@@ -1148,15 +1215,14 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 NSLog("🔐 Using Supabase session - token: \(token.prefix(20))..., userId: \(userIdValue)")
                 
                 // Fetch user's events from api-auto-upload-user-events API
-                let events = await fetchUserEventsFromAPI(supabaseToken: token, userId: userIdValue)
+                let allEvents = await fetchUserEventsFromAPI(supabaseToken: token, userId: userIdValue)
                 
-                NSLog("📊 Found \(events.count) events from API (already filtered by edge function)")
+                NSLog("📊 Found \(allEvents.count) events from API")
                 
                 call.resolve([
                     "success": true,
-                    "events": events,
-                    "totalEvents": events.count,
-                    "eligibleEvents": events.count
+                    "events": allEvents,
+                    "totalEvents": allEvents.count
                 ])
                 
             } catch {
@@ -1346,8 +1412,11 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
                         console.log('✅ AutoUpload: UploadStatusOverlay found, showing scanning overlay');
                         
-                        // Show the overlay first
-                        window.Capacitor.Plugins.UploadStatusOverlay.showOverlay();
+                        // Show the overlay in scanning mode
+                        window.Capacitor.Plugins.UploadStatusOverlay.showOverlay({
+                            mode: 'scanning',
+                            eventName: 'Events'
+                        });
                         
                         // Start animated dots for "Scanning for uploads..."
                         let dotCount = 0;
@@ -1789,7 +1858,7 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         NSLog("🔐 Using Supabase token: \(supabaseToken.prefix(20))...")
         
         // Build API request to getUserEventsWithAnalytics
-        guard let url = URL(string: "https://photo-share.app/api/getUserEventsWithAnalytics") else {
+        guard let url = URL(string: "https://photoshare.ai/api/getUserEventsWithAnalytics") else {
             NSLog("❌ Invalid API URL")
             return []
         }
@@ -3016,7 +3085,27 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         
         Task {
             do {
-                // Step 1: Wait for auth bridge to be ready (like triggerAutoSupabaseTokenCheck)
+                // Step 1: Check photo permissions BEFORE starting any auto-upload flow
+                NSLog("📸 AutoUpload: Checking photo library permissions...")
+                let photoPermissionStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                switch photoPermissionStatus {
+                case .authorized:
+                    NSLog("✅ Photo library access already granted")
+                case .notDetermined:
+                    NSLog("⚠️ Photo library access not determined - auto-upload will request permission when scanning")
+                case .denied, .restricted:
+                    NSLog("❌ Photo library access denied/restricted - cannot proceed with auto-upload")
+                    call.reject("Photo library access denied", "PHOTO_PERMISSION_DENIED", nil)
+                    return
+                case .limited:
+                    NSLog("⚠️ Photo library access limited - auto-upload will work with available photos")
+                @unknown default:
+                    NSLog("❌ Unknown photo library permission status - cannot proceed")
+                    call.reject("Unknown photo permission status", "PHOTO_PERMISSION_UNKNOWN", nil)
+                    return
+                }
+                
+                // Step 2: Wait for auth bridge to be ready (like triggerAutoSupabaseTokenCheck)
                 NSLog("⏳ Waiting for auth bridge to be ready...")
                 let authReady = await waitForAuthBridge(maxWaitSeconds: 15)
                 
@@ -3028,37 +3117,8 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 
                 NSLog("✅ Auth bridge is ready, proceeding with settings check...")
                 
-                // Step 2: Check global auto-upload settings
-                NSLog("⚙️ Checking global auto-upload settings...")
-                let globalSettings = await getGlobalAutoUploadSettings()
-                
-                // Check if auto-upload is globally disabled
-                if !globalSettings.isEnabled {
-                    NSLog("❌ Auto-upload is globally disabled")
-                    call.resolve([
-                        "success": true,
-                        "message": "Auto-upload is globally disabled",
-                        "eventsProcessed": 0,
-                        "photosUploaded": 0
-                    ])
-                    return
-                }
-                
-                // Check WiFi-only requirement
-                if globalSettings.wifiOnly {
-                    let isOnWiFi = await checkWiFiConnection()
-                    if !isOnWiFi {
-                        NSLog("❌ WiFi-only mode enabled but device is on cellular")
-                        call.resolve([
-                            "success": true,
-                            "message": "WiFi-only mode enabled but device is on cellular",
-                            "eventsProcessed": 0,
-                            "photosUploaded": 0
-                        ])
-                        return
-                    }
-                    NSLog("✅ WiFi-only mode enabled and device is on WiFi")
-                }
+                // Simplified: Let web API handle all filtering logic
+                NSLog("⚙️ Proceeding with startAutoUploadFlow (web API handles all filtering)")
                 
                 NSLog("✅ Global auto-upload settings validated")
                 
@@ -3119,6 +3179,18 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 
                 NSLog("🔐 Starting auto-upload flow with JWT token: \(token.prefix(20))...")
                 
+                // Hide any existing overlay first, then show "Getting Events" overlay
+                NSLog("🔧 Step 1: Hiding any existing overlay...")
+                await hideOverlay()
+                
+                NSLog("🔧 Step 2: Showing Getting Events overlay...")
+                await showGettingEventsOverlay()
+                
+                NSLog("🔧 Step 3: Brief delay for Getting Events to be visible...")
+                // Brief delay for UI responsiveness
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 second delay
+                NSLog("🔧 Step 4: Getting Events delay completed")
+                
                 // Get Supabase session data (like triggerAutoSupabaseTokenCheck does)
                 NSLog("🔍 Getting Supabase session data for user events...")
                 let (supabaseToken, userId) = await getSupabaseSessionData()
@@ -3139,6 +3211,8 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 
                 if userEvents.isEmpty {
                     NSLog("ℹ️ No events found for user")
+                    // Hide overlay since no events to process
+                    await hideOverlay()
                     call.resolve([
                         "success": true,
                         "message": "No events found",
@@ -3150,7 +3224,11 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 
                 NSLog("📊 Found \(userEvents.count) events to process")
                 
-                // Step 2: Process each event sequentially with overlay updates
+                // Step 2: Transition to scanning mode now that we have events
+                NSLog("🔧 Step 5: Transitioning from Getting Events to Scanning mode...")
+                await updateScanningOverlayMessage(eventName: "events", current: 1, total: userEvents.count)
+                
+                // Step 3: Process each event sequentially with overlay updates
                 var totalPhotosUploaded = 0
                 
                 for (index, event) in userEvents.enumerated() {
@@ -3161,15 +3239,11 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                     
                     NSLog("🔍 Processing event \(index + 1)/\(userEvents.count): \(eventName) (ID: \(eventId))")
+                    NSLog("✅ Processing event \(eventName) (global auto-upload enabled)")
                     
-                    // Check if auto-upload is enabled for this specific event
-                    let eventAutoUploadEnabled = event["auto_upload_enabled"] as? Bool ?? false
-                    if !eventAutoUploadEnabled {
-                        NSLog("⏭️ Skipping event \(eventName) - auto-upload disabled for this event")
-                        continue
-                    }
-                    
-                    NSLog("✅ Event \(eventName) has auto-upload enabled")
+                    // Update scanning overlay for current event
+                    NSLog("🔧 Step 6.\(index + 1): Updating overlay for \(eventName)...")
+                    await updateScanningOverlayMessage(eventName: eventName, current: index + 1, total: userEvents.count)
                     
                     // Scan this event for new photos
                     let photosUploaded = await scanSingleEventForUploads(
@@ -3184,7 +3258,13 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 
                 // Hide overlay after all events are processed
-                await hideScanningOverlayAfterAllEvents()
+                if totalPhotosUploaded == 0 {
+                    NSLog("📭 No photos found across all events - hiding overlay completely")
+                    await hideOverlay()
+                } else {
+                    NSLog("✅ Photos uploaded - hiding scanning overlay after completion")
+                    await hideScanningOverlayAfterAllEvents()
+                }
                 
                 NSLog("✅ Auto-upload flow completed: \(userEvents.count) events processed, \(totalPhotosUploaded) photos uploaded")
                 
@@ -3210,8 +3290,8 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             return 0
         }
         
-        // Show scanning overlay for this event
-        await updateScanningOverlayMessage(eventName: eventName, current: 1, total: 1)
+        // Scanning overlay already shown in main auto-upload flow
+        NSLog("🔍 Scanning individual event: \(eventName)")
         
         NSLog("🔍 Scanning \(eventName) for photos to upload...")
         NSLog("🔐 Using JWT token for \(eventName): \(jwtToken.prefix(20))...")

@@ -3,7 +3,7 @@
   "appName": "PhotoShare",
   "webDir": "www",
   "server": {
-    "url": "https://photo-share.app",
+    "url": "https://photoshare.ai",
     "cleartext": false
   },
   "plugins": {
@@ -34,7 +34,8 @@
     "Filesystem": {},
     "Haptics": {},
     "Keyboard": {
-      "resize": "body",
+      "resize": "ionic",
+      "resizeOnFullScreen": true,
       "style": "dark"
     },
     "Preferences": {},
@@ -94,6 +95,9 @@
     "UploadStatusOverlay",
     "CustomCameraPlugin",
     "NativeGalleryPlugin",
-    "BulkDownloadPlugin"
+    "BulkDownloadPlugin",
+    "FCMTokenPlugin",
+    "DeepLinkRouter",
+    "PerformanceMonitorPlugin"
   ]
 }

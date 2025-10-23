@@ -5,7 +5,7 @@ import AVFoundation
 /**
  * QRScanner plugin for scanning QR codes using native iOS camera
  */
-@objc(QRScanner)
+@objc(QRScannerPlugin)
 public class QRScanner: CAPPlugin, CAPBridgedPlugin {
     // Required properties for CAPBridgedPlugin
     public let identifier = "QRScanner"

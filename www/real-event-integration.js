@@ -9,7 +9,6 @@ class RealEventIntegration {
     constructor() {
         this.isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
         this.eventPhotoPicker = null;
-        this.currentEventData = null;
         
         if (this.isNative) {
             console.log('📱 Native app detected - initializing real event integration');
@@ -23,10 +22,6 @@ class RealEventIntegration {
         try {
             // Wait for EventPhotoPicker to be available
             await this.waitForEventPhotoPicker();
-            
-            // Extract current event data
-            this.currentEventData = this.extractEventData();
-            console.log('📋 Extracted event data:', this.currentEventData);
             
             // Test photo count with real event data
             await this.testRealEventPhotoCount();
@@ -69,6 +64,11 @@ class RealEventIntegration {
             };
             check();
         });
+    }
+    
+    getCurrentEventData() {
+        console.log('🔍 Getting fresh event data from page...');
+        return this.extractEventData();
     }
     
     extractEventData() {
@@ -233,24 +233,26 @@ class RealEventIntegration {
     }
     
     async testRealEventPhotoCount() {
-        if (!this.currentEventData) return;
+        const currentEventData = this.getCurrentEventData();
+        if (!currentEventData) return;
         
         console.log('🧪 Testing photo count with real event data...');
+        console.log('📋 Fresh event data:', currentEventData);
         
         try {
             const result = await this.eventPhotoPicker.getEventPhotosMetadata({
-                startDate: this.currentEventData.startDate,
-                endDate: this.currentEventData.endDate,
-                uploadedPhotoIds: this.currentEventData.uploadedPhotoIds,
-                timezone: this.currentEventData.timezone
+                startDate: currentEventData.startDate,
+                endDate: currentEventData.endDate,
+                uploadedPhotoIds: currentEventData.uploadedPhotoIds,
+                timezone: currentEventData.timezone
             });
             
             console.log('✅ Real event photo count results:');
             console.log(`   📸 Total photos: ${result.totalCount}`);
             console.log(`   ⬆️ Uploaded: ${result.uploadedCount}`);
             console.log(`   ⏳ Pending: ${result.pendingCount}`);
-            console.log(`   📋 Event: ${this.currentEventData.eventName}`);
-            console.log(`   🌍 Timezone: ${this.currentEventData.timezone}`);
+            console.log(`   📋 Event: ${currentEventData.eventName}`);
+            console.log(`   🌍 Timezone: ${currentEventData.timezone}`);
             
             // Store result for later use
             this.lastPhotoCount = result;
@@ -436,24 +438,27 @@ class RealEventIntegration {
     async handleEventPhotoPickerUpload() {
         console.log('🎯 EventPhotoPicker upload triggered!');
         
-        if (!this.currentEventData) {
+        const currentEventData = this.getCurrentEventData();
+        if (!currentEventData) {
             console.error('❌ No event data available');
             return;
         }
         
+        console.log('📋 Fresh event data for upload:', currentEventData);
+        
         try {
             // Show event info dialog first
             console.log('📋 Showing event info dialog...');
-            const dialogResult = await this.eventPhotoPicker.showEventInfo(this.currentEventData);
+            const dialogResult = await this.eventPhotoPicker.showEventInfo(currentEventData);
             console.log('📋 Event info dialog result:', dialogResult);
             
             if (dialogResult.action === 'continue') {
                 // Get latest photo count
                 const photoResult = await this.eventPhotoPicker.getEventPhotosMetadata({
-                    startDate: this.currentEventData.startDate,
-                    endDate: this.currentEventData.endDate,
-                    uploadedPhotoIds: this.currentEventData.uploadedPhotoIds,
-                    timezone: this.currentEventData.timezone
+                    startDate: currentEventData.startDate,
+                    endDate: currentEventData.endDate,
+                    uploadedPhotoIds: currentEventData.uploadedPhotoIds,
+                    timezone: currentEventData.timezone
                 });
                 
                 console.log(`📸 Found ${photoResult.totalCount} photos for upload`);
@@ -462,13 +467,13 @@ class RealEventIntegration {
                     // Open photo picker for selection
                     console.log('🖼️ Opening photo picker...');
                     const pickerResult = await this.eventPhotoPicker.openEventPhotoPicker({
-                        startDate: this.currentEventData.startDate,
-                        endDate: this.currentEventData.endDate,
-                        eventId: this.currentEventData.eventId,
-                        timezone: this.currentEventData.timezone,
-                        uploadedPhotoIds: this.currentEventData.uploadedPhotoIds,
+                        startDate: currentEventData.startDate,
+                        endDate: currentEventData.endDate,
+                        eventId: currentEventData.eventId,
+                        timezone: currentEventData.timezone,
+                        uploadedPhotoIds: currentEventData.uploadedPhotoIds,
                         allowMultipleSelection: true,
-                        title: `Select Photos for ${this.currentEventData.eventName}`
+                        title: `Select Photos for ${currentEventData.eventName}`
                     });
                     
                     console.log('✅ Photo picker completed:', pickerResult);
@@ -540,12 +545,13 @@ class RealEventIntegration {
     
     // Utility methods for manual testing
     manualTest() {
-        console.log('🧪 Manual test - Current event data:', this.currentEventData);
+        const currentEventData = this.getCurrentEventData();
+        console.log('🧪 Manual test - Current event data:', currentEventData);
         return this.testRealEventPhotoCount();
     }
     
     getEventData() {
-        return this.currentEventData;
+        return this.getCurrentEventData();
     }
     
     getPhotoCount() {

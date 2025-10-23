@@ -179,28 +179,64 @@ const stored = await FCMTokenPlugin.getStoredToken();
   "UploadManager",
   "PhotoLibraryMonitor",
   "QRScanner",
-  "AppPermissions",
-  "FCMTokenPlugin",
+  "AppPermissionPlugin",
   "PhotoEditorPlugin",
   "AutoUploadPlugin",
   "UploadStatusOverlay",
   "CustomCameraPlugin",
   "NativeGalleryPlugin",
-  "BulkDownloadPlugin"
+  "BulkDownloadPlugin",
+  "PerformanceMonitorPlugin",
+  "FCMTokenPlugin",
+  "DeepLinkRouter"
 ]
 ```
 
-3. **Save the file in Xcode before building**
+3. **Add custom plugin configurations to `plugins` object:**
+
+```json
+"plugins": {
+  // ... existing plugins ...
+  "NativeGalleryPlugin": {
+    "downloadEnabled": true,
+    "shareEnabled": true,
+    "customViewer": true
+  },
+  "BulkDownloadPlugin": {
+    "enabled": true
+  },
+  "FCMTokenPlugin": {},
+  "PerformanceMonitorPlugin": {},
+  "DeepLinkRouter": {}
+}
+```
+
+4. **Save the file in Xcode before building**
 
 ### Custom Plugins Documentation:
 
-- **AppPermissions**: Cross-platform permission management (replaces AppPermissionPlugin)
-- **FCMTokenPlugin**: Firebase Cloud Messaging token registration with authentication retry logic
-- **BulkDownloadPlugin**: Multi-photo download with progress tracking and native gallery storage
-- **EventPhotoPicker**: Event-aware photo selection with date filtering
-- **NativeGalleryPlugin**: Enhanced gallery with download/share capabilities
-- **AutoUploadPlugin**: Background photo upload monitoring
-- See individual plugin `.md` files for detailed implementation guides
+**Core Plugins (14 total):**
+- **EventPhotoPicker**: Event-aware photo selection with date/time filtering and duplicate detection
+- **UploadManager**: Photo upload queue management with progress tracking
+- **PhotoLibraryMonitor**: Background photo library monitoring for auto-upload
+- **QRScanner**: QR code scanning for event joining
+- **AppPermissionPlugin**: Cross-platform permission management with onboarding flow
+- **PhotoEditorPlugin**: Native photo editing capabilities
+- **AutoUploadPlugin**: Background photo upload with event filtering (respects auto_upload_enabled)
+- **UploadStatusOverlay**: Real-time upload progress display
+- **CustomCameraPlugin**: Enhanced camera functionality with custom controls
+- **NativeGalleryPlugin**: Native gallery viewer with download/share/report functionality
+- **BulkDownloadPlugin**: Multi-photo download with progress tracking
+- **PerformanceMonitorPlugin**: App performance monitoring and analytics
+- **FCMTokenPlugin**: Firebase Cloud Messaging with authentication retry logic
+- **DeepLinkRouter**: Deep link handling for push notification navigation
+
+**Recent Updates:**
+- **AutoUploadPlugin**: Now properly filters out events where `auto_upload_enabled = false`
+- **EventPhotoPicker**: Enhanced debugging for date range filtering issues
+- **DeepLinkRouter**: Supports all notification types (create, join, event, upload, download)
+
+See individual plugin `.swift` files for detailed implementation guides
 
 ## Quick Commands
 

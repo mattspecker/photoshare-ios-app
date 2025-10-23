@@ -16,6 +16,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Capture AppDelegate init start time
+        PerformanceMonitorPlugin.APP_DELEGATE_INIT_START = ProcessInfo.processInfo.systemUptime
+        print("📊 [PERF] APP_DELEGATE_INIT_START: \(PerformanceMonitorPlugin.APP_DELEGATE_INIT_START)")
+        
         // Override point for customization after application launch.
         FirebaseApp.configure()
         
@@ -46,7 +50,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         _ = NativeGalleryPlugin.self
         _ = BulkDownloadPlugin.self // TODO: Add to Xcode project
         _ = FCMTokenPlugin.self
+        _ = PerformanceMonitorPlugin.self
         print("✅ Custom plugin classes loaded for packageClassList discovery")
+        
+        // Mark plugins registered
+        PerformanceMonitorPlugin.PLUGINS_REGISTERED = ProcessInfo.processInfo.systemUptime
+        print("📊 [PERF] PLUGINS_REGISTERED: \(PerformanceMonitorPlugin.PLUGINS_REGISTERED)")
         
         // Debug Firebase configuration
         if let defaultApp = FirebaseApp.app() {
@@ -80,6 +89,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 print("Resource path: \(resourcePath)")
             }
         }
+        
+        // Mark AppDelegate init end
+        PerformanceMonitorPlugin.APP_DELEGATE_INIT_END = ProcessInfo.processInfo.systemUptime
+        print("📊 [PERF] APP_DELEGATE_INIT_END: \(PerformanceMonitorPlugin.APP_DELEGATE_INIT_END)")
+        
+        // Log all timing values
+        print("📊 [PERF] === TIMING SUMMARY ===")
+        print("📊 [PERF] APP_START_TIME: \(PerformanceMonitorPlugin.APP_START_TIME)")
+        print("📊 [PERF] APP_DELEGATE_INIT_START: \(PerformanceMonitorPlugin.APP_DELEGATE_INIT_START)")
+        print("📊 [PERF] APP_DELEGATE_INIT_END: \(PerformanceMonitorPlugin.APP_DELEGATE_INIT_END)")
+        print("📊 [PERF] PLUGINS_REGISTERED: \(PerformanceMonitorPlugin.PLUGINS_REGISTERED)")
         
         return true
     }
@@ -638,10 +658,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     func applicationWillEnterForeground(_ application: UIApplication) {
         // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
+        
+        // Clear app badge when app enters foreground
+        print("🔔 [BADGE] Clearing app badge on enter foreground")
+        application.applicationIconBadgeNumber = 0
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        
+        // Clear app badge when app becomes active
+        print("🔔 [BADGE] Clearing app badge on app become active")
+        application.applicationIconBadgeNumber = 0
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
         
         // Ensure GoogleSignIn has the right presenting view controller when app becomes active
         DispatchQueue.main.async {
@@ -689,8 +718,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         print("🔄 No fresh token available or expired - pre-loading now...")
         print("🔄 Setting 1-second delay timer...")
         
-        // Request fresh token via Capacitor WebView bridge (with 1 second delay like Android)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        // Request fresh token via Capacitor WebView bridge (with minimal delay)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             print("🔄 ==================== 1 SECOND DELAY COMPLETED ====================")
             print("🔄 1 second delay completed - requesting fresh JWT token...")
             self.retrieveJwtTokenForNativePlugins()
@@ -733,7 +762,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         print("🔔 [FCM] APNS token set in Firebase Messaging")
         
         // Force FCM token generation after APNS token is set
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             print("🔔 [FCM] Requesting FCM token after APNS registration...")
             Messaging.messaging().token { token, error in
                 if let error = error {
@@ -984,7 +1013,7 @@ extension AppDelegate {
                 print("📱 [PUSH] Action:", action)
             }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.handleDeepLinkFromNotification(deepLink)
             }
             return
@@ -993,7 +1022,7 @@ extension AppDelegate {
         // 2. Check "deep_link" (with underscore) for backwards compatibility
         if let deepLink = userInfo["deep_link"] as? String {
             print("🔗 [PUSH] Found deep_link at root level:", deepLink)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.handleDeepLinkFromNotification(deepLink)
             }
             return
@@ -1018,7 +1047,7 @@ extension AppDelegate {
                 }
                 
                 // Process the deep link
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     self.handleDeepLinkFromNotification(deepLink)
                 }
                 return
@@ -1034,7 +1063,7 @@ extension AppDelegate {
             print("📱 [PUSH] FCM options:", fcmOptions)
             if let link = fcmOptions["link"] as? String {
                 print("🔗 [PUSH] Found link in fcm_options:", link)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     self.handleDeepLinkFromNotification(link)
                 }
                 return
@@ -1044,7 +1073,7 @@ extension AppDelegate {
         // 4. Check for gcm.notification.deep_link (Firebase format)
         if let gcmDeepLink = userInfo["gcm.notification.deep_link"] as? String {
             print("🔗 [PUSH] Found gcm.notification.deep_link:", gcmDeepLink)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.handleDeepLinkFromNotification(gcmDeepLink)
             }
             return
@@ -1065,7 +1094,7 @@ extension AppDelegate {
                     let deepLink = "photoshare://event/\(eventId)"
                     print("🔗 [PUSH] Converted clickAction to deep link:", deepLink)
                     
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         self.handleDeepLinkFromNotification(deepLink)
                     }
                     return
@@ -1090,7 +1119,7 @@ extension AppDelegate {
             }
             
             print("🔗 [PUSH] Constructed deep link:", constructedLink)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.handleDeepLinkFromNotification(constructedLink)
             }
             return
@@ -1114,7 +1143,7 @@ extension AppDelegate {
             }
             
             print("🔗 [PUSH] Constructed deep link:", constructedLink)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.handleDeepLinkFromNotification(constructedLink)
             }
             return

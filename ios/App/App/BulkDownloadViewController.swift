@@ -64,7 +64,7 @@ class BulkDownloadViewController: UIViewController {
         // Create selection count label
         selectionCountLabel = UILabel()
         selectionCountLabel.translatesAutoresizingMaskIntoConstraints = false
-        selectionCountLabel.font = .systemFont(ofSize: 16)
+        selectionCountLabel.font = UIFont(name: "Outfit-Medium", size: 16) ?? UIFont.systemFont(ofSize: 16, weight: .medium)
         selectionCountLabel.textColor = .label
         selectionControlsView.addSubview(selectionCountLabel)
         
@@ -72,14 +72,14 @@ class BulkDownloadViewController: UIViewController {
         downloadButton = UIButton(type: .system)
         downloadButton.translatesAutoresizingMaskIntoConstraints = false
         downloadButton.setTitle("Download", for: .normal)
-        downloadButton.titleLabel?.font = .boldSystemFont(ofSize: 16)
+        downloadButton.titleLabel?.font = UIFont(name: "Outfit-Bold", size: 16) ?? UIFont.boldSystemFont(ofSize: 16)
         selectionControlsView.addSubview(downloadButton)
         
         // Create clear button
         clearButton = UIButton(type: .system)
         clearButton.translatesAutoresizingMaskIntoConstraints = false
         clearButton.setTitle("Clear", for: .normal)
-        clearButton.titleLabel?.font = .systemFont(ofSize: 16)
+        clearButton.titleLabel?.font = UIFont(name: "Outfit-Regular", size: 16) ?? UIFont.systemFont(ofSize: 16)
         selectionControlsView.addSubview(clearButton)
         
         // Layout constraints
@@ -403,19 +403,14 @@ class BulkDownloadViewController: UIViewController {
                     self.showToast(message: "Downloading \(currentIndex) of \(photos.count)...")
                 }
                 
-                do {
-                    // Download and save the photo
-                    let imageUrl = !photo.getFullUrl().isEmpty ? photo.getFullUrl() : photo.getThumbnailUrl()
-                    if self.downloadAndSavePhoto(url: imageUrl, photo: photo, index: currentIndex) {
-                        successCount += 1
-                        NSLog("✅ Successfully downloaded photo \(currentIndex): \(photo.getTitle())")
-                    } else {
-                        failCount += 1
-                        NSLog("❌ Failed to download photo \(currentIndex): \(photo.getTitle())")
-                    }
-                } catch {
+                // Download and save the photo
+                let imageUrl = !photo.getFullUrl().isEmpty ? photo.getFullUrl() : photo.getThumbnailUrl()
+                if self.downloadAndSavePhoto(url: imageUrl, photo: photo, index: currentIndex) {
+                    successCount += 1
+                    NSLog("✅ Successfully downloaded photo \(currentIndex): \(photo.getTitle())")
+                } else {
                     failCount += 1
-                    NSLog("❌ Exception downloading photo \(currentIndex): \(error.localizedDescription)")
+                    NSLog("❌ Failed to download photo \(currentIndex): \(photo.getTitle())")
                 }
             }
             
@@ -542,7 +537,7 @@ class BulkDownloadViewController: UIViewController {
         toastLabel.backgroundColor = UIColor.black.withAlphaComponent(0.8)
         toastLabel.textColor = UIColor.white
         toastLabel.textAlignment = .center
-        toastLabel.font = UIFont.systemFont(ofSize: 16)
+        toastLabel.font = UIFont(name: "Outfit-Regular", size: 16) ?? UIFont.systemFont(ofSize: 16)
         toastLabel.text = "    \(message)    "  // Add more padding spaces around text
         toastLabel.alpha = 1.0
         toastLabel.layer.cornerRadius = 20

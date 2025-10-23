@@ -601,7 +601,7 @@ extension CustomCameraPlugin: UIImagePickerControllerDelegate, UINavigationContr
         let loadingLabel = UILabel()
         loadingLabel.text = "Loading Editor..."
         loadingLabel.textColor = .white
-        loadingLabel.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        loadingLabel.font = UIFont.outfitFont(ofSize: 18, weight: .medium)
         loadingLabel.textAlignment = .center
         loadingLabel.translatesAutoresizingMaskIntoConstraints = false
         

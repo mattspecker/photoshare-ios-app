@@ -4,7 +4,7 @@ import Capacitor
 /**
  * UploadManager - Minimal Plugin for Testing Registration
  */
-@objc(UploadManager)
+@objc(UploadManagerPlugin)
 public class UploadManager: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "UploadManager"
     public let jsName = "UploadManager"

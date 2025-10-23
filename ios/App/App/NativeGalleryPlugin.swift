@@ -294,7 +294,7 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
         // Create username label for "Photo by username"
         let usernameLabel = UILabel()
         usernameLabel.text = self.getCurrentUserText()
-        usernameLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        usernameLabel.font = UIFont(name: "Outfit-Medium", size: 16) ?? UIFont.systemFont(ofSize: 16, weight: .medium)
         usernameLabel.textColor = .white
         usernameLabel.backgroundColor = UIColor.clear
         usernameLabel.textAlignment = .left
@@ -304,7 +304,7 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
         // Create download button - icon only with 48x48 touch area
         let downloadButton = UIButton(type: .system)
         downloadButton.setTitle("📥", for: .normal)
-        downloadButton.titleLabel?.font = UIFont.systemFont(ofSize: 24)
+        downloadButton.titleLabel?.font = UIFont(name: "Outfit-Medium", size: 24) ?? UIFont.systemFont(ofSize: 24, weight: .medium)
         downloadButton.backgroundColor = UIColor.black.withAlphaComponent(0.7)
         downloadButton.setTitleColor(.white, for: .normal)
         downloadButton.layer.cornerRadius = 24
@@ -314,7 +314,7 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
         // Create report button - icon only with 48x48 touch area (only show if not user's own photo)
         let reportButton = UIButton(type: .system)
         reportButton.setTitle("⚠️", for: .normal)
-        reportButton.titleLabel?.font = UIFont.systemFont(ofSize: 24)
+        reportButton.titleLabel?.font = UIFont(name: "Outfit-Medium", size: 24) ?? UIFont.systemFont(ofSize: 24, weight: .medium)
         reportButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
         reportButton.setTitleColor(.white, for: .normal)
         reportButton.layer.cornerRadius = 24
@@ -532,7 +532,7 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
         toastLabel.backgroundColor = UIColor.black.withAlphaComponent(0.8)
         toastLabel.textColor = UIColor.white
         toastLabel.textAlignment = .center
-        toastLabel.font = UIFont.systemFont(ofSize: 16)
+        toastLabel.font = UIFont(name: "Outfit-Regular", size: 16) ?? UIFont.systemFont(ofSize: 16)
         toastLabel.text = message
         toastLabel.alpha = 1.0
         toastLabel.layer.cornerRadius = 20

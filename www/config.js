@@ -8,7 +8,7 @@ console.log('📋 Loading PhotoShare configuration...');
 window.PHOTOSHARE_CONFIG = {
   // Website Configuration
   website: {
-    url: 'https://photo-share.app',
+    url: 'https://photoshare.ai',
     apiEndpoint: '/functions/v1/mobile-upload',
     // Set to true when you have actual credentials
     useRealWebsite: true  // ← Changed to true for live testing

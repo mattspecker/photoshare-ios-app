@@ -7,7 +7,7 @@ import UserNotifications
 import CryptoKit
 import Vision
 
-@objc(EventPhotoPicker)
+@objc(EventPhotoPickerPlugin)
 public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "EventPhotoPicker"
     public let jsName = "EventPhotoPicker"
@@ -296,7 +296,7 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         NSLog("🚀🚀🚀 EventPhotoPicker.openEventPhotoPicker called! 🚀🚀🚀")
         print("🚀🚀🚀 EventPhotoPicker.openEventPhotoPicker called! 🚀🚀🚀")
         print("🚀 Opening event photo picker...")
-        print("📦 Call parameters: \(call.options)")
+        print("📦 Call parameters: \(call.options ?? [:])")
         
         // Get JWT token from JavaScript parameters
         var jwtToken: String? = call.getString("jwtToken")
@@ -851,13 +851,17 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        // Show upload status overlay with total count
-        showUploadStatusOverlay()
-        updateUploadOverlayProgress(completed: 0, total: photos.count)
-        
-        // Start background uploads for each photo
-        for (index, photoData) in photos.enumerated() {
-            uploadPhoto(photoData: photoData, eventId: eventId, jwtToken: jwtToken, photoIndex: index + 1, totalPhotos: photos.count)
+        // Only show upload overlay if there are photos to upload
+        if photos.count > 0 {
+            showUploadStatusOverlay()
+            updateUploadOverlayProgress(completed: 0, total: photos.count, fileName: "Preparing uploads...")
+            
+            // Start background uploads for each photo
+            for (index, photoData) in photos.enumerated() {
+                uploadPhoto(photoData: photoData, eventId: eventId, jwtToken: jwtToken, photoIndex: index + 1, totalPhotos: photos.count)
+            }
+        } else {
+            print("📭 No photos to upload")
         }
     }
     
@@ -866,7 +870,9 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
             if let bridge = self.bridge {
                 bridge.eval(js: """
                     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
-                        window.Capacitor.Plugins.UploadStatusOverlay.showOverlay();
+                        window.Capacitor.Plugins.UploadStatusOverlay.showOverlay({
+                            mode: 'uploading'
+                        });
                         console.log('✅ Upload status overlay shown');
                     }
                 """)
@@ -887,31 +893,35 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
-    private func updateUploadOverlayProgress(completed: Int, total: Int) {
+    private func updateUploadOverlayProgress(completed: Int, total: Int, fileName: String = "", isDuplicate: Bool = false, isOutsideDate: Bool = false) {
         DispatchQueue.main.async {
             if let bridge = self.bridge {
                 bridge.eval(js: """
                     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
                         window.Capacitor.Plugins.UploadStatusOverlay.updateProgress({
                             completed: \(completed),
-                            total: \(total)
+                            total: \(total),
+                            fileName: '\(fileName)',
+                            isDuplicate: \(isDuplicate ? "true" : "false"),
+                            isOutsideDate: \(isOutsideDate ? "true" : "false")
                         });
-                        console.log('📊 Overlay updated: \(completed)/\(total)');
+                        console.log('📊 Overlay updated: \(completed)/\(total) - \(fileName)');
                     }
                 """)
             }
         }
     }
     
-    private func addThumbnailToOverlay(thumbnail: String) {
+    private func addThumbnailToOverlay(thumbnail: String, fileName: String) {
         DispatchQueue.main.async {
             if let bridge = self.bridge {
                 bridge.eval(js: """
                     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
                         window.Capacitor.Plugins.UploadStatusOverlay.addPhoto({
-                            thumbnail: '\(thumbnail)'
+                            thumbnail: '\(thumbnail)',
+                            fileName: '\(fileName)'
                         });
-                        console.log('📸 Added thumbnail to overlay');
+                        console.log('📸 Added thumbnail to overlay: \(fileName)');
                     }
                 """)
             }
@@ -939,6 +949,22 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         // Generate proper UUID for upload tracking
         let uploadId = UUID().uuidString.lowercased()
         let filename = photoData["filename"] as? String ?? "photo_\(photoIndex).jpg"
+        
+        // Update overlay with current file
+        updateUploadOverlayProgress(completed: photoIndex - 1, total: totalPhotos, fileName: filename)
+        
+        // Generate and add thumbnail to overlay
+        if let asset = photoData["asset"] as? PHAsset {
+            let options = PHImageRequestOptions()
+            options.isSynchronous = true
+            PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: 200, height: 200), contentMode: .aspectFill, options: options) { image, _ in
+                if let image = image,
+                   let thumbnailData = image.jpegData(compressionQuality: 0.5) {
+                    let base64Thumbnail = thumbnailData.base64EncodedString()
+                    self.addThumbnailToOverlay(thumbnail: base64Thumbnail, fileName: filename)
+                }
+            }
+        }
         
         print("📤 Starting upload: \(uploadId) - \(filename)")
         
@@ -1005,7 +1031,8 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         
         // Set current thumbnail in overlay right before upload starts
         if let thumbnailBase64 = photoData["thumbnail"] as? String {
-            addThumbnailToOverlay(thumbnail: thumbnailBase64)
+            let fileName = photoData["filename"] as? String ?? "photo_\(photoIndex).jpg"
+            addThumbnailToOverlay(thumbnail: thumbnailBase64, fileName: fileName)
         }
         
         print("📤 Starting background upload for photo \(photoIndex)/\(totalPhotos)")
@@ -1116,10 +1143,24 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
         updateUploadOverlayProgress(completed: completedUploads, total: totalPhotos)
         
         if completedUploads >= totalPhotos {
-            print("✅ All uploads complete! Hiding overlay after 3 seconds")
+            print("✅ All uploads complete! Showing completion state")
+            
+            // Show completion state
+            DispatchQueue.main.async {
+                if let bridge = self.bridge {
+                    bridge.eval(js: """
+                        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.UploadStatusOverlay) {
+                            window.Capacitor.Plugins.UploadStatusOverlay.setMode({
+                                mode: 'complete'
+                            });
+                            console.log('✅ Upload complete state shown');
+                        }
+                    """)
+                }
+            }
             
             // Hide overlay after a brief delay to show completion
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
                 self.hideUploadStatusOverlay()
                 
                 // Reset counters for next upload session
@@ -1307,8 +1348,9 @@ public class EventPhotoPicker: CAPPlugin, CAPBridgedPlugin {
               let eventTZ = TimeZone(identifier: eventTimezoneString) else {
             print("⚠️ No valid event timezone, treating input as UTC")
             
-            // Dates are in UTC, convert to device timezone
-            let utcToDeviceOffset = TimeInterval(deviceTimezone.secondsFromGMT())
+            // Dates are in UTC, convert to device timezone for comparison
+            // Photos are stored in device time, so we need to convert UTC event times to device time
+            let utcToDeviceOffset = TimeInterval(-deviceTimezone.secondsFromGMT())
             let adjustedStart = eventStartDate.addingTimeInterval(utcToDeviceOffset)
             let adjustedEnd = eventEndDate.addingTimeInterval(utcToDeviceOffset)
             
@@ -1934,14 +1976,14 @@ class EventPhotoPickerViewController: UIViewController {
         // Create Select All button
         selectAllToolbarButton = UIButton(type: .system)
         selectAllToolbarButton.setTitle("Select All", for: .normal)
-        selectAllToolbarButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        selectAllToolbarButton.titleLabel?.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         selectAllToolbarButton.addTarget(self, action: #selector(selectAllTapped), for: .touchUpInside)
         toolbarView.addSubview(selectAllToolbarButton)
         
         // Create Upload button
         uploadToolbarButton = UIButton(type: .system)
         uploadToolbarButton.setTitle("Upload (0)", for: .normal)
-        uploadToolbarButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        uploadToolbarButton.titleLabel?.font = UIFont.outfitFont(ofSize: 16, weight: .semibold)
         uploadToolbarButton.setTitleColor(.white, for: .normal)
         uploadToolbarButton.backgroundColor = UIColor.systemBlue
         uploadToolbarButton.layer.cornerRadius = 8
@@ -2009,7 +2051,7 @@ class EventPhotoPickerViewController: UIViewController {
         // Create loading label
         let loadingLabel = UILabel()
         loadingLabel.text = "Checking for uploaded photos..."
-        loadingLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        loadingLabel.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         loadingLabel.textColor = UIColor.label
         loadingLabel.textAlignment = .center
         loadingLabel.numberOfLines = 0 // Allow multiple lines
@@ -2079,6 +2121,13 @@ class EventPhotoPickerViewController: UIViewController {
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
+            
+            // CRITICAL DEBUG: Log the exact dates being used for photo search
+            print("🔍 CRITICAL DEBUG - EventPhotoPickerViewController.loadEventPhotos()")
+            print("🕐 Using startDate for photo search: \(self.startDate)")
+            print("🕐 Using endDate for photo search: \(self.endDate)")
+            print("⏰ Date range duration: \(self.endDate.timeIntervalSince(self.startDate) / 3600) hours")
+            print("📱 Device timezone: \(TimeZone.current.identifier)")
             
             let options = PHFetchOptions()
             options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
@@ -2368,7 +2417,7 @@ class EventPhotoCell: UICollectionViewCell {
         // Uploaded label
         uploadedLabel.text = "✓ Uploaded"
         uploadedLabel.textColor = UIColor.white
-        uploadedLabel.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        uploadedLabel.font = UIFont.outfitFont(ofSize: 12, weight: .semibold)
         uploadedLabel.textAlignment = .center
         uploadedOverlay.addSubview(uploadedLabel)
         
@@ -2689,13 +2738,13 @@ class EventInfoModalViewController: UIViewController {
         
         let labelView = UILabel()
         labelView.text = label
-        labelView.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        labelView.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         labelView.textColor = UIColor.secondaryLabel
         labelView.translatesAutoresizingMaskIntoConstraints = false
         
         let valueView = UILabel()
         valueView.text = value
-        valueView.font = UIFont.systemFont(ofSize: 16)
+        valueView.font = UIFont.outfitFont(ofSize: 16)
         valueView.textColor = UIColor.label
         valueView.numberOfLines = 0
         valueView.translatesAutoresizingMaskIntoConstraints = false
@@ -2739,7 +2788,7 @@ class EventInfoModalViewController: UIViewController {
         
         let iconLabel = UILabel()
         iconLabel.text = statusIcon
-        iconLabel.font = UIFont.systemFont(ofSize: 32)
+        iconLabel.font = UIFont.outfitFont(ofSize: 32)
         
         let statusLabel = UILabel()
         statusLabel.text = statusText
@@ -2924,6 +2973,9 @@ class RegularPhotoPickerViewController: UIViewController {
     private let allowMultipleSelection: Bool
     private let pickerTitle: String
     private let maxSelectionCount: Int
+    private let startDate: Date?
+    private let endDate: Date?
+    private let timezone: String?
     
     private var allPhotos: [RegularPhoto] = []
     private var selectedPhotos: Set<String> = []
@@ -2935,10 +2987,13 @@ class RegularPhotoPickerViewController: UIViewController {
     var onComplete: (([RegularPhoto]) -> Void)?
     var onCancel: (() -> Void)?
     
-    init(allowMultipleSelection: Bool, title: String, maxSelectionCount: Int) {
+    init(allowMultipleSelection: Bool, title: String, maxSelectionCount: Int, startDate: Date? = nil, endDate: Date? = nil, timezone: String? = nil) {
         self.allowMultipleSelection = allowMultipleSelection
         self.pickerTitle = title
         self.maxSelectionCount = maxSelectionCount
+        self.startDate = startDate
+        self.endDate = endDate
+        self.timezone = timezone
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -3024,7 +3079,29 @@ class RegularPhotoPickerViewController: UIViewController {
             
             let options = PHFetchOptions()
             options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-            options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+            
+            // Apply date filtering if dates are provided
+            if let startDate = self.startDate, let endDate = self.endDate {
+                print("📅 Applying date filter: \(startDate) to \(endDate)")
+                print("🌍 Event timezone: \(self.timezone ?? "not specified")")
+                
+                // Convert event times to device time for photo filtering
+                let (searchStartDate, searchEndDate) = self.convertEventTimesToDeviceTime(
+                    eventStartDate: startDate,
+                    eventEndDate: endDate,
+                    eventTimezone: self.timezone
+                )
+                
+                print("📅 Device time search range: \(searchStartDate) to \(searchEndDate)")
+                
+                options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate <= %@ AND mediaType == %d",
+                                               searchStartDate as NSDate,
+                                               searchEndDate as NSDate,
+                                               PHAssetMediaType.image.rawValue)
+            } else {
+                print("📅 No date filter - loading all photos")
+                options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+            }
             
             let assets = PHAsset.fetchAssets(with: options)
             var photos: [RegularPhoto] = []
@@ -3047,7 +3124,11 @@ class RegularPhotoPickerViewController: UIViewController {
                 self.allPhotos = photos
                 self.collectionView.reloadData()
                 self.updateUI()
-                print("📸 Loaded \(photos.count) photos from device")
+                if let startDate = self.startDate, let endDate = self.endDate {
+                    print("📸 Loaded \(photos.count) photos from device within date range \(startDate) to \(endDate)")
+                } else {
+                    print("📸 Loaded \(photos.count) photos from device (no date filter)")
+                }
             }
         }
     }
@@ -3097,6 +3178,56 @@ class RegularPhotoPickerViewController: UIViewController {
         let selectedRegularPhotos = allPhotos.filter { selectedPhotos.contains($0.localIdentifier) }
         onComplete?(selectedRegularPhotos)
         dismiss(animated: true)
+    }
+    
+    private func convertEventTimesToDeviceTime(eventStartDate: Date, eventEndDate: Date, eventTimezone: String?) -> (Date, Date) {
+        print("🔄 Converting event times to device time for photo search...")
+        
+        let deviceTimezone = TimeZone.current
+        
+        // If no event timezone specified, assume UTC and convert to device time
+        guard let eventTimezoneString = eventTimezone,
+              let eventTZ = TimeZone(identifier: eventTimezoneString) else {
+            print("⚠️ No valid event timezone, treating input as UTC")
+            
+            // Dates are in UTC, convert to device timezone for comparison
+            // Photos are stored in device time, so we need to convert UTC event times to device time
+            let utcToDeviceOffset = TimeInterval(-deviceTimezone.secondsFromGMT())
+            let adjustedStart = eventStartDate.addingTimeInterval(utcToDeviceOffset)
+            let adjustedEnd = eventEndDate.addingTimeInterval(utcToDeviceOffset)
+            
+            print("🕐 UTC \(eventStartDate) -> Device \(adjustedStart)")
+            print("🕐 UTC \(eventEndDate) -> Device \(adjustedEnd)")
+            
+            return (adjustedStart, adjustedEnd)
+        }
+        
+        print("🌍 Event timezone: \(eventTZ.identifier) (\(eventTZ.abbreviation() ?? "?"))")
+        print("📱 Device timezone: \(deviceTimezone.identifier) (\(deviceTimezone.abbreviation() ?? "?"))")
+        
+        // Calculate offset differences
+        let eventOffsetFromGMT = eventTZ.secondsFromGMT(for: eventStartDate)
+        let deviceOffsetFromGMT = deviceTimezone.secondsFromGMT(for: eventStartDate)
+        let offsetDifference = TimeInterval(deviceOffsetFromGMT - eventOffsetFromGMT)
+        
+        print("📊 Event offset from GMT: \(eventOffsetFromGMT / 3600) hours")
+        print("📊 Device offset from GMT: \(deviceOffsetFromGMT / 3600) hours")
+        print("📊 Offset difference: \(offsetDifference / 3600) hours")
+        
+        // Apply timezone conversion
+        let adjustedStart = eventStartDate.addingTimeInterval(offsetDifference)
+        let adjustedEnd = eventEndDate.addingTimeInterval(offsetDifference)
+        
+        print("🕐 Event time \(eventStartDate) -> Device time \(adjustedStart)")
+        print("🕐 Event time \(eventEndDate) -> Device time \(adjustedEnd)")
+        
+        // Validation: Check if conversion makes sense
+        let hoursDifference = abs(adjustedStart.timeIntervalSince(eventStartDate)) / 3600
+        if hoursDifference > 24 {
+            print("⚠️ Large timezone difference detected: \(hoursDifference) hours")
+        }
+        
+        return (adjustedStart, adjustedEnd)
     }
 }
 

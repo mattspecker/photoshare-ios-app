@@ -4,7 +4,7 @@ import UserNotifications
 import Photos
 import AVFoundation
 
-@objc(AppPermissions)
+@objc(AppPermissionPlugin)
 public class AppPermissions: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - CAPBridgedPlugin Protocol Requirements

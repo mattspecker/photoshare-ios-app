@@ -1,417 +1,140 @@
 <!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PhotoShare</title>
-  
-  <!-- FCM Extension - External JS file -->
-  <script src="./fcm-extension.js"></script>
-  
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      margin: 0;
-      padding: 0;
-      background-color: #f5f5f5;
-    }
-    .loading-container {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      text-align: center;
-      padding: 20px;
-    }
-    .logo {
-      font-size: 3em;
-      margin-bottom: 20px;
-    }
-    .loading-text {
-      font-size: 1.2em;
-      color: #666;
-      margin-bottom: 10px;
-    }
-    .loading-spinner {
-      width: 40px;
-      height: 40px;
-      border: 4px solid #e3e3e3;
-      border-top: 4px solid #007bff;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 20px auto;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; frame-ancestors 'self' capacitor: ionic: file:; connect-src 'self' https: wss: ws:;" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>PhotoShare</title>
+    <meta name="description" content="Lovable Generated Project" />
+    <meta name="author" content="Lovable" />
+    <link rel="icon" href="/lovable-uploads/appicon1024x1024.png" type="image/png">
+
+    <!-- Resource hints for critical services -->
+    <link rel="dns-prefetch" href="https://jgfcfdlfcnmaripgpepl.supabase.co">
+    <link rel="preconnect" href="https://jgfcfdlfcnmaripgpepl.supabase.co" crossorigin>
+
+    <meta property="og:title" content="PhotoShare" />
+    <meta property="og:description" content="Lovable Generated Project" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@lovable_dev" />
+    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
     
-    .test-mode {
-      margin-top: 40px;
-      padding: 20px;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    .test-link {
-      display: inline-block;
-      background: #007bff;
-      color: white;
-      text-decoration: none;
-      padding: 15px 30px;
-      border-radius: 5px;
-      margin: 10px;
-      font-weight: 500;
-    }
-    .test-link:hover {
-      background: #0056b3;
-    }
-  </style>
-</head>
-<body>
-  <div class="loading-container">
-    <div class="logo">📱</div>
-    <h1>PhotoShare</h1>
-    <div class="loading-text" id="loadingText">Initializing EventPhotoPicker...</div>
-    <div class="loading-spinner" id="loadingSpinner"></div>
+    <!-- Critical: Load ALL override scripts BEFORE main app bundle -->
+    <!-- This ensures Camera overrides are set up before ES6 imports are cached -->
     
-    <!-- Test mode section (only shown in development) -->
-    <div class="test-mode" id="testMode" style="display: none;">
-      <h3>EventPhotoPicker Testing</h3>
-      <p>Choose your test:</p>
+    <!-- Permission Gate - MUST load FIRST to block premature auto-upload -->
+    <script src="/js/permissions-gate.js"></script>
+    
+    <!-- Loading Coordinator - Manages initialization order -->
+    <script src="/js/loading-coordinator.js"></script>
+    
+    <!-- Auth Bridge - Loads on iOS and Android -->
+    <script>
+      // Load auth bridge on both iOS and Android
+      const platform = window.Capacitor?.getPlatform?.();
+      if (platform === 'ios' || platform === 'android') {
+        const authBridgeScript = document.createElement('script');
+        authBridgeScript.src = '/js/ios-jwt-auth-bridge.js';
+        document.head.appendChild(authBridgeScript);
+      }
       
-      <a href="#" onclick="testEventInfo(); return false;" class="test-link">
-        📸 Test Event Info
-      </a>
-      
-      <a href="#" onclick="testPhotoMetadata(); return false;" class="test-link">
-        📊 Test Photo Metadata
-      </a>
-      
-      <a href="#" onclick="testPhotoPicker(); return false;" class="test-link">
-        🖼️ Test Photo Picker
-      </a>
-      
-      <p><small>EventPhotoPicker Integration Test Mode</small></p>
+      // Platform-specific FCM handlers
+      if (platform === 'ios') {
+        const iosFcmScript = document.createElement('script');
+        iosFcmScript.src = '/js/ios-fcm-handler.js';
+        document.head.appendChild(iosFcmScript);
+      } else if (platform === 'android') {
+        const androidFcmScript = document.createElement('script');
+        androidFcmScript.src = '/js/android-fcm-handler.js';
+        document.head.appendChild(androidFcmScript);
+      }
+    </script>
+    <script src="/js/capacitor-push-notifications.js"></script>
+    <script src="/js/photo-share-app-integration.js" defer></script>
+    <script src="/js/website-integration.js" defer></script>
+    <script src="/js/photo-duplicate-prevention.js" defer></script>
+    <script src="/js/chunked-jwt-implementation.js"></script>
+    <script src="/js/photoshare-app-integration-inline.js"></script>
+    <script src="/js/native-plugin-auth-helper.js"></script>
+    <script src="/js/web-app-ready-signal.js"></script>
+    
+    <!-- Google Fonts for Photo Editor and Theme Variations -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@300;400;500;600;700&family=Open+Sans:wght@300;400;500;600;700&family=Lato:wght@300;400;700&family=Oswald:wght@300;400;500;600;700&family=Raleway:wght@300;400;500;600;700&family=Nunito:wght@300;400;500;600;700&family=Source+Sans+Pro:wght@300;400;600;700&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Merriweather:wght@300;400;700&family=PT+Sans:wght@400;700&family=Ubuntu:wght@300;400;500;700&family=Work+Sans:wght@300;400;500;600;700&family=Quicksand:wght@300;400;500;600;700&family=Rubik:wght@300;400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="/assets/index-DJafiPoS.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CtwFNlw1.css">
+  </head>
+
+  <body>
+    <!-- Initial loading screen - shows before React loads -->
+    <div id="initial-loader" class="initial-loading-screen">
+      <div class="loading-content">
+        <div class="loading-logo">
+          <div class="camera-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+              <path d="M16 6h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </div>
+        </div>
+        <h1 class="loading-title">PhotoShare</h1>
+        <div class="loading-spinner">
+          <div class="spinner-ring"></div>
+        </div>
+        <p class="loading-text">Loading...</p>
+      </div>
     </div>
-  </div>
-
-  <!-- Core Scripts -->
-  <script src="./config.js"></script>
-  
-  <!-- Background Upload Service -->
-  <script src="./backgroundUploadService.js"></script>
-  
-  <!-- EventPhotoPicker Integration -->
-  <script src="./eventPhotoPicker.js"></script>
-  
-  <!-- UploadManager Plugin -->
-  <script src="./uploadManager.js"></script>
-  
-  <!-- Website Integration for photo-share.app -->
-  <script src="./photo-share-app-integration.js"></script>
-  
-  <!-- Camera Permissions -->
-  <script type="module" src="./cameraPermissions.js"></script>
-  
-  <!-- QR Scanner Plugin -->
-  <script type="module" src="./qrScanner.js"></script>
-  
-  <!-- Upload Status Overlay -->
-  <script src="./uploadStatusOverlay.js"></script>
-  
-  <!-- Auto-Upload on Resume (Android-style timing) -->
-  <script src="./autoUploadOnResume.js"></script>
-  
-  
-  <!-- App Initialization -->
-  <script>
-    let isNativeApp = false;
     
-    // FCM setup moved to head section for earlier loading
+    <div id="root"></div>
     
-    // Check if we're running in Capacitor
-    document.addEventListener('DOMContentLoaded', async function() {
-      console.log('📱 PhotoShare app starting...');
-      
-      // Check if we're in the native app
-      if (window.Capacitor && window.Capacitor.isNativePlatform()) {
-        isNativeApp = true;
-        console.log('✅ Running in native iOS app');
-        
-        updateLoadingText('EventPhotoPicker ready - Press and hold screen for 3 seconds to show test mode');
-        
-        // Add touch handler for test mode
-        let touchTimer;
-        document.addEventListener('touchstart', () => {
-          touchTimer = setTimeout(() => {
-            showTestMode();
-          }, 3000);
-        });
-        
-        document.addEventListener('touchend', () => {
-          clearTimeout(touchTimer);
-        });
-        
-        // Test FCM extension after plugins are loaded
-        setTimeout(() => {
-          console.log('🧪 Testing FCM extension after plugin load...');
-          window.testFCMExtension();
-        }, 1000);
-        
-        // Test AutoUpload plugin before redirect
-        setTimeout(() => {
-          console.log('🧪 Testing AutoUpload plugin before redirect...');
-          window.testAutoUploadFlow();
-        }, 2000);
-        
-        // Navigate to photo-share.app after initialization
-        setTimeout(() => {
-          console.log('🌐 Redirecting to photo-share.app...');
-          window.location.href = 'https://photo-share.app';
-        }, 3000);
-        
-      } else {
-        console.log('🌐 Running in web browser - showing test mode');
-        
-        updateLoadingText('Development mode detected');
-        
-        // In browser, show test options
-        setTimeout(() => {
-          document.getElementById('loadingSpinner').style.display = 'none';
-          document.getElementById('testMode').style.display = 'block';
-          updateLoadingText('EventPhotoPicker test tools ready');
-        }, 1500);
-      }
-    });
+    <!-- Native Gallery Integration -->
+    <script src="/js/native-gallery-integration.js"></script>
     
-    function updateLoadingText(text) {
-      document.getElementById('loadingText').textContent = text;
-    }
+    <!-- Main app bundle loads AFTER all overrides are ready -->
     
-    function showTestMode() {
-      document.getElementById('loadingSpinner').style.display = 'none';
-      document.getElementById('testMode').style.display = 'block';
-      updateLoadingText('Test mode activated');
-    }
-    
-    // Test functions are exposed by eventPhotoPicker.js
-    // testEventInfo(), testPhotoMetadata(), testPhotoPicker()
-    
-    // Handle back button in native app
-    if (window.Capacitor) {
-      document.addEventListener('ionBackButton', (ev) => {
-        ev.detail.register(10, () => {
-          console.log('📱 Back button pressed');
-        });
-      });
-    }
-
-    // Global error handler
-    window.addEventListener('error', function(e) {
-      console.error('❌ App error:', e.error);
-      updateLoadingText('Error occurred - see console for details');
-    });
-
-    // Test simple plugin
-    window.testSimplePlugin = async function() {
-        console.log('🧪 Testing EventPhotoPickerSimple...');
-        try {
-            const plugin = window.Capacitor.Plugins.EventPhotoPickerSimple;
-            if (!plugin) throw new Error('EventPhotoPickerSimple plugin not found');
-            const result = await plugin.testSimple();
-            console.log('✅ EventPhotoPickerSimple SUCCESS:', result);
-            return result;
-        } catch (error) {
-            console.error('❌ EventPhotoPickerSimple FAILED:', error);
-            return { error: error.message };
-        }
-    };
-
-    // Test FCM extension
-    window.testFCMExtension = function() {
-      console.log('🧪 Testing FCM Extension...');
-      
-      console.log('🔍 Checking FCM extension availability:');
-      console.log('- window.FCMPushNotifications exists:', !!window.FCMPushNotifications);
-      console.log('- window.Capacitor.Plugins.PushNotifications exists:', !!window.Capacitor?.Plugins?.PushNotifications);
-      console.log('- initializeFCM method exists:', !!window.Capacitor?.Plugins?.PushNotifications?.initializeFCM);
-      
-      if (window.Capacitor?.Plugins?.PushNotifications?.initializeFCM) {
-        console.log('✅ initializeFCM method is available!');
-        return true;
-      } else {
-        console.log('❌ initializeFCM method not found');
-        return false;
-      }
-    };
-
-    // Test checkUploadedPhotos method
-    window.testCheckUploadedPhotos = async function() {
-      console.log('🧪 Testing AutoUpload checkUploadedPhotos...');
-      try {
-        const plugin = window.Capacitor?.Plugins?.AutoUpload;
-        if (!plugin) {
-          throw new Error('AutoUpload plugin not found');
-        }
-        
-        // Get JWT token like other methods
-        let jwtToken = null;
-        try {
-          if (window.getPhotoShareJwtToken && typeof window.getPhotoShareJwtToken === 'function') {
-            jwtToken = await window.getPhotoShareJwtToken();
-            console.log('🔐 JWT token obtained for AutoUpload using getPhotoShareJwtToken');
-          } else if (window.getJwtTokenForNativePlugin && typeof window.getJwtTokenForNativePlugin === 'function') {
-            jwtToken = await window.getJwtTokenForNativePlugin();
-            console.log('🔐 JWT token obtained for AutoUpload using getJwtTokenForNativePlugin (fallback)');
-          } else {
-            console.log('⚠️ No JWT token functions available');
+    <!-- Hide initial loader when React takes over -->
+    <script>
+      // Hide the initial loader once React starts rendering
+      window.addEventListener('DOMContentLoaded', function() {
+        // Add a small delay to ensure smooth transition
+        setTimeout(function() {
+          const loader = document.getElementById('initial-loader');
+          if (loader && document.querySelector('#root').children.length > 0) {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.remove(), 300);
           }
-        } catch (jwtError) {
-          console.warn('⚠️ Could not get JWT token:', jwtError);
-        }
-        
-        const options = {
-          eventId: 'test_event_123'
-        };
-        
-        // Add JWT token if available
-        if (jwtToken) {
-          options.jwtToken = jwtToken;
-          console.log('🔐 Added JWT token to options');
-        }
-        
-        // Test with sample photo IDs for duplicate checking
-        options.photoIds = ['photo_device_001', 'photo_device_999', 'photo_device_003'];
-        
-        console.log('📊 Testing checkUploadedPhotos with options:', options);
-        const result = await plugin.checkUploadedPhotos(options);
-        console.log('✅ checkUploadedPhotos SUCCESS:', result);
-        
-        // Log detailed analysis
-        if (result.uploadedPhotos && result.photoHashMap) {
-          console.log('📋 Uploaded photos found:', result.uploadedPhotos.length);
-          console.log('🔍 Photo hash map keys:', Object.keys(result.photoHashMap));
-          console.log('📸 Checking for duplicates...');
-          
-          options.photoIds.forEach(photoId => {
-            const isDuplicate = result.photoHashMap[photoId];
-            console.log(`  📱 ${photoId}: ${isDuplicate ? '🔴 DUPLICATE' : '🟢 NEW'}`);
-          });
-        }
-        
-        return { success: true, result };
-      } catch (error) {
-        console.error('❌ checkUploadedPhotos test FAILED:', error);
-        return { success: false, error: error.message };
-      }
-    };
-
-    // Test AutoUpload flow automatically
-    window.testAutoUploadFlow = async function() {
-      console.log('🔧 ==================== AUTO UPLOAD FLOW TEST START ====================');
-      console.log('🔧 Testing AutoUpload plugin availability and basic functionality...');
+        }, 100);
+      });
       
-      try {
-        // Check if AutoUpload plugin is available
-        if (!window.Capacitor?.Plugins?.AutoUpload) {
-          console.error('❌ AutoUpload plugin not found in Capacitor.Plugins');
-          console.log('📋 Available plugins:', Object.keys(window.Capacitor?.Plugins || {}));
-          return { success: false, error: 'AutoUpload plugin not found' };
+      // Also check periodically if React has rendered
+      const checkReactLoaded = setInterval(function() {
+        const rootElement = document.querySelector('#root');
+        if (rootElement && rootElement.children.length > 0) {
+          const loader = document.getElementById('initial-loader');
+          if (loader) {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.remove(), 300);
+          }
+          clearInterval(checkReactLoaded);
         }
-        
-        console.log('✅ AutoUpload plugin found');
-        
-        // Test getUserEvents
-        console.log('🧪 Testing getUserEvents...');
-        const result = await window.Capacitor.Plugins.AutoUpload.getUserEvents({});
-        
-        console.log('✅ getUserEvents completed');
-        console.log('📊 Result:', result);
-        
-        if (result.events && Array.isArray(result.events)) {
-          console.log(`📋 Found ${result.events.length} events`);
-          result.events.forEach((event, index) => {
-            console.log(`  📅 Event ${index + 1}: ${event.name || 'Unnamed'} (ID: ${event.id || 'No ID'})`);
-          });
-        } else {
-          console.log('📋 No events array in result');
+      }, 50);
+      
+      // Fallback: remove loader after 10 seconds regardless
+      setTimeout(function() {
+        const loader = document.getElementById('initial-loader');
+        if (loader) {
+          loader.style.opacity = '0';
+          setTimeout(() => loader.remove(), 300);
         }
-        
-        console.log('🔧 ==================== AUTO UPLOAD FLOW TEST SUCCESS ====================');
-        return { success: true, result };
-        
-      } catch (error) {
-        console.error('❌ AutoUpload flow test FAILED:', error);
-        console.log('🔧 ==================== AUTO UPLOAD FLOW TEST FAILED ====================');
-        return { success: false, error: error.message };
-      }
-    };
-
-    // Test overlay manually
-    window.testScanningOverlay = function() {
-        console.log('🧪 Manual scanning overlay test...');
-        
-        try {
-            // Create a very simple overlay
-            let overlay = document.getElementById('testOverlay');
-            if (overlay) {
-                overlay.remove();
-            }
-            
-            overlay = document.createElement('div');
-            overlay.id = 'testOverlay';
-            overlay.style.position = 'fixed';
-            overlay.style.top = '0';
-            overlay.style.left = '0';
-            overlay.style.width = '100%';
-            overlay.style.height = '100%';
-            overlay.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
-            overlay.style.display = 'flex';
-            overlay.style.justifyContent = 'center';
-            overlay.style.alignItems = 'center';
-            overlay.style.zIndex = '99999';
-            overlay.style.color = 'white';
-            overlay.style.fontSize = '24px';
-            overlay.textContent = 'TEST OVERLAY - Tap to dismiss';
-            
-            overlay.onclick = () => overlay.remove();
-            
-            document.body.appendChild(overlay);
-            console.log('✅ Test overlay created - should show red overlay');
-            
-            // Auto remove after 5 seconds
-            setTimeout(() => {
-                if (overlay.parentNode) {
-                    overlay.remove();
-                    console.log('🧹 Test overlay auto-removed after 5 seconds');
-                }
-            }, 5000);
-            
-        } catch (error) {
-            console.error('❌ Test overlay failed:', error);
-            alert('Test overlay failed: ' + error.message);
-        }
-    };
-
-    // Expose debugging functions
-    window.PhotoShareDebug = {
-      isNative: () => isNativeApp,
-      getStatus: () => window.EventPhotoPickerApp?.getStatus?.(),
-      testEventInfo: () => window.testEventInfo?.(),
-      testPhotoMetadata: () => window.testPhotoMetadata?.(),
-      testPhotoPicker: () => window.testPhotoPicker?.(),
-      testSimplePlugin: () => window.testSimplePlugin?.(),
-      testFCMExtension: () => window.testFCMExtension?.(),
-      testAutoUpload: () => window.testAutoUpload?.(),
-      testGetUserEvents: () => window.testGetUserEvents?.(),
-      testCheckUploadedPhotos: () => window.testCheckUploadedPhotos?.(),
-      listPlugins: () => {
-        console.log('📋 Available Capacitor plugins:');
-        console.log(Object.keys(window.Capacitor?.Plugins || {}));
-        return Object.keys(window.Capacitor?.Plugins || {});
-      }
-    };
-  </script>
-</body>
+        clearInterval(checkReactLoaded);
+      }, 10000);
+    </script>
+  </body>
 </html>

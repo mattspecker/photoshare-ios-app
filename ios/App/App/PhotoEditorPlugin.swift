@@ -240,7 +240,7 @@ class PhotoEditorViewController: UIViewController {
     private func setupCloseButton() {
         let closeButton = UIButton(type: .system)
         closeButton.setTitle("✕", for: .normal)
-        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 20, weight: .medium)
+        closeButton.titleLabel?.font = UIFont(name: "Outfit-Medium", size: 20) ?? UIFont.outfitFont(ofSize: 20, weight: .medium)
         closeButton.setTitleColor(.white, for: .normal)
         closeButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         closeButton.layer.cornerRadius = 20
@@ -341,7 +341,7 @@ class PhotoEditorViewController: UIViewController {
     private func createPhotoShareButton(title: String, style: PhotoShareButtonStyle) -> UIButton {
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        button.titleLabel?.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         button.layer.cornerRadius = 8 // 0.5rem from design system
         button.contentEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
         
@@ -384,7 +384,7 @@ class PhotoEditorViewController: UIViewController {
         button.setTitle(title, for: .normal)
         
         // Web-style outline button configuration
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium) // 0.875rem
+        button.titleLabel?.font = UIFont.outfitFont(ofSize: 14, weight: .medium) // 0.875rem
         button.layer.cornerRadius = 6 // calc(var(--radius) - 2px)
         button.contentEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
         
@@ -482,7 +482,7 @@ class PhotoEditorViewController: UIViewController {
         // Create an editable text label
         let label = EditableTextLabel()
         label.text = text
-        label.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        label.font = UIFont.outfitFont(ofSize: 24, weight: .bold)
         label.textColor = .white
         label.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         label.textAlignment = .center
@@ -810,12 +810,14 @@ class TextOptionsViewController: UIViewController {
     private var fontButtons: [UIButton] = []
     
     private let availableFonts = [
-        ("System", UIFont.systemFont(ofSize: 24)),
+        ("Outfit", UIFont(name: "Outfit-Regular", size: 24) ?? UIFont.outfitFont(ofSize: 24)),
+        ("Outfit Bold", UIFont(name: "Outfit-Bold", size: 24) ?? UIFont.boldSystemFont(ofSize: 24)),
+        ("System", UIFont.outfitFont(ofSize: 24)),
         ("Bold", UIFont.boldSystemFont(ofSize: 24)),
         ("Italic", UIFont.italicSystemFont(ofSize: 24)),
-        ("Helvetica", UIFont(name: "Helvetica", size: 24) ?? UIFont.systemFont(ofSize: 24)),
-        ("Times", UIFont(name: "Times New Roman", size: 24) ?? UIFont.systemFont(ofSize: 24)),
-        ("Courier", UIFont(name: "Courier", size: 24) ?? UIFont.systemFont(ofSize: 24))
+        ("Helvetica", UIFont(name: "Helvetica", size: 24) ?? UIFont.outfitFont(ofSize: 24)),
+        ("Times", UIFont(name: "Times New Roman", size: 24) ?? UIFont.outfitFont(ofSize: 24)),
+        ("Courier", UIFont(name: "Courier", size: 24) ?? UIFont.outfitFont(ofSize: 24))
     ]
     
     private let availableColors: [UIColor] = [
@@ -852,7 +854,7 @@ class TextOptionsViewController: UIViewController {
         // Title
         let titleLabel = UILabel()
         titleLabel.text = "Text Options"
-        titleLabel.font = UIFont.boldSystemFont(ofSize: 20)
+        titleLabel.font = UIFont(name: "Outfit-Bold", size: 20) ?? UIFont.boldSystemFont(ofSize: 20)
         titleLabel.textColor = .white // White text on black background
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -861,7 +863,7 @@ class TextOptionsViewController: UIViewController {
         // Font Size Section
         let fontSizeLabel = UILabel()
         fontSizeLabel.text = "Font Size"
-        fontSizeLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        fontSizeLabel.font = UIFont(name: "Outfit-Medium", size: 16) ?? UIFont.outfitFont(ofSize: 16, weight: .medium)
         fontSizeLabel.textColor = .white // White text on black background
         fontSizeLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(fontSizeLabel)
@@ -876,7 +878,7 @@ class TextOptionsViewController: UIViewController {
         
         let fontSizeValueLabel = UILabel()
         fontSizeValueLabel.text = "\(Int(fontSizeSlider.value))pt"
-        fontSizeValueLabel.font = UIFont.systemFont(ofSize: 14)
+        fontSizeValueLabel.font = UIFont(name: "Outfit-Regular", size: 14) ?? UIFont.outfitFont(ofSize: 14)
         fontSizeValueLabel.textColor = .lightGray // Light gray on black background
         fontSizeValueLabel.translatesAutoresizingMaskIntoConstraints = false
         fontSizeValueLabel.tag = 100 // Tag for updating
@@ -885,7 +887,7 @@ class TextOptionsViewController: UIViewController {
         // Font Family Section
         let fontLabel = UILabel()
         fontLabel.text = "Font Style"
-        fontLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        fontLabel.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         fontLabel.textColor = .white // White text on black background
         fontLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(fontLabel)
@@ -897,7 +899,7 @@ class TextOptionsViewController: UIViewController {
         // Color Section
         let colorLabel = UILabel()
         colorLabel.text = "Text Color"
-        colorLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        colorLabel.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         colorLabel.textColor = .white // White text on black background
         colorLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(colorLabel)
@@ -909,7 +911,7 @@ class TextOptionsViewController: UIViewController {
         // Background Options
         let backgroundLabel = UILabel()
         backgroundLabel.text = "Background"
-        backgroundLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        backgroundLabel.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         backgroundLabel.textColor = .white // White text on black background
         backgroundLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(backgroundLabel)
@@ -930,7 +932,7 @@ class TextOptionsViewController: UIViewController {
         doneButton.layer.shadowOffset = CGSize(width: 0, height: 1)
         doneButton.layer.shadowRadius = 2
         doneButton.layer.shadowOpacity = 0.05
-        doneButton.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium) // Smaller font to match web
+        doneButton.titleLabel?.font = UIFont.outfitFont(ofSize: 14, weight: .medium) // Smaller font to match web
         doneButton.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
         doneButton.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(doneButton)
@@ -1011,7 +1013,7 @@ class TextOptionsViewController: UIViewController {
             button.addTarget(self, action: #selector(fontButtonTapped(_:)), for: .touchUpInside)
             
             // Set button width based on text size to show full font name
-            let textWidth = fontName.size(withAttributes: [.font: UIFont.systemFont(ofSize: 14, weight: .medium)]).width
+            let textWidth = fontName.size(withAttributes: [.font: UIFont.outfitFont(ofSize: 14, weight: .medium)]).width
             let buttonWidth = max(textWidth + 32, 80) // Minimum 80pt, plus padding
             button.widthAnchor.constraint(equalToConstant: buttonWidth).isActive = true
             button.heightAnchor.constraint(equalToConstant: 40).isActive = true
@@ -1120,7 +1122,7 @@ class TextOptionsViewController: UIViewController {
         button.layer.cornerRadius = 6
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        button.titleLabel?.font = UIFont.outfitFont(ofSize: 14, weight: .medium)
         
         button.tag = tag
         button.addTarget(self, action: #selector(backgroundButtonTapped(_:)), for: .touchUpInside)
@@ -1146,7 +1148,7 @@ class TextOptionsViewController: UIViewController {
     
     @objc private func fontSizeChanged(_ slider: UISlider) {
         let fontSize = CGFloat(slider.value)
-        let currentFont = textLabel.font ?? UIFont.systemFont(ofSize: 24)
+        let currentFont = textLabel.font ?? UIFont.outfitFont(ofSize: 24)
         textLabel.font = currentFont.withSize(fontSize)
         
         // Properly resize the label by recalculating its size
@@ -1238,7 +1240,7 @@ class EditableStickerView: UIView {
         case .emoji:
             let label = UILabel()
             label.text = sticker.content
-            label.font = UIFont.systemFont(ofSize: 40)
+            label.font = UIFont.outfitFont(ofSize: 40)
             label.textAlignment = .center
             label.frame = bounds
             contentView = label
@@ -1298,7 +1300,7 @@ class StickerPickerViewController: UIViewController {
         // Title with white text styling
         let titleLabel = UILabel()
         titleLabel.text = "Choose Sticker"
-        titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .semibold)
+        titleLabel.font = UIFont.outfitFont(ofSize: 20, weight: .semibold)
         titleLabel.textColor = .white // White text on black background
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1346,7 +1348,7 @@ class StickerPickerViewController: UIViewController {
         doneButton.layer.shadowOffset = CGSize(width: 0, height: 1)
         doneButton.layer.shadowRadius = 2
         doneButton.layer.shadowOpacity = 0.05
-        doneButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        doneButton.titleLabel?.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         doneButton.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
         doneButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(doneButton)
@@ -1477,7 +1479,7 @@ class StickerCell: UICollectionViewCell {
         layer.shadowOpacity = 0.05
         
         contentLabel.textAlignment = .center
-        contentLabel.font = UIFont.systemFont(ofSize: 30)
+        contentLabel.font = UIFont.outfitFont(ofSize: 30)
         contentLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(contentLabel)
         
@@ -1582,7 +1584,7 @@ class CropEditorViewController: UIViewController {
         let titleLabel = UILabel()
         titleLabel.text = getTitleForCropType()
         titleLabel.textColor = .white
-        titleLabel.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        titleLabel.font = UIFont(name: "Outfit-SemiBold", size: 18) ?? UIFont.outfitFont(ofSize: 18, weight: .semibold)
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(titleLabel)
@@ -1590,7 +1592,7 @@ class CropEditorViewController: UIViewController {
         // Close button
         let closeButton = UIButton(type: .system)
         closeButton.setTitle("✕", for: .normal)
-        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        closeButton.titleLabel?.font = UIFont.outfitFont(ofSize: 18, weight: .medium)
         closeButton.setTitleColor(.white, for: .normal)
         closeButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         closeButton.layer.cornerRadius = 22
@@ -1729,7 +1731,7 @@ class CropEditorViewController: UIViewController {
     private func createWebStyleButton(title: String) -> UIButton {
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        button.titleLabel?.font = UIFont.outfitFont(ofSize: 16, weight: .medium)
         
         // Web-style outline button styling
         button.backgroundColor = UIColor.black

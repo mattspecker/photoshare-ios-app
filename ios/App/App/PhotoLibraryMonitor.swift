@@ -3,7 +3,7 @@ import Photos
 import Capacitor
 import Network
 
-@objc(PhotoLibraryMonitor)
+@objc(PhotoLibraryMonitorPlugin)
 public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "PhotoLibraryMonitor"
     public let jsName = "PhotoLibraryMonitor"
@@ -41,10 +41,8 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
         // Load user preferences on startup
         loadAutoUploadSettings()
         
-        // Emit bridge ready event after a short delay to ensure web view is ready
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.emitBridgeReadyEvent()
-        }
+        // Emit bridge ready event immediately
+        emitBridgeReadyEvent()
     }
     
     // MARK: - Auto-Upload Methods
