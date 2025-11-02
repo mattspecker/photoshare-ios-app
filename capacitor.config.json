@@ -15,7 +15,7 @@
       "providers": ["google.com"]
     },
     "Camera": {
-      "permissions": ["camera", "photos"]
+      "permissions": ["camera"]
     },
     "StatusBar": {
       "style": "DEFAULT",
@@ -59,7 +59,11 @@
     },
     "BulkDownloadPlugin": {
       "enabled": true
-    }
+    },
+    "FCMTokenPlugin": {},
+    "PerformanceMonitorPlugin": {},
+    "DeepLinkRouter": {},
+    "ContentModerationPlugin": {}
   },
   "ios": {
     "scheme": "App",
@@ -85,19 +89,20 @@
     "PreferencesPlugin",
     "PushNotificationsPlugin",
     "StatusBarPlugin",
-    "EventPhotoPicker",
-    "UploadManager",
-    "PhotoLibraryMonitor",
-    "QRScanner",
+    "EventPhotoPickerPlugin",
+    "UploadManagerPlugin",
+    "PhotoLibraryMonitorPlugin",
+    "QRScannerPlugin",
     "AppPermissionPlugin",
     "PhotoEditorPlugin",
     "AutoUploadPlugin",
-    "UploadStatusOverlay",
+    "UploadStatusOverlayPlugin",
     "CustomCameraPlugin",
     "NativeGalleryPlugin",
     "BulkDownloadPlugin",
     "FCMTokenPlugin",
-    "DeepLinkRouter",
-    "PerformanceMonitorPlugin"
+    "PerformanceMonitorPlugin",
+    "DeepLinkRouterPlugin",
+    "ContentModerationPlugin"
   ]
 }

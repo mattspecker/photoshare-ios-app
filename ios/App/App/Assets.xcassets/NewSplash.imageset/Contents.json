@@ -1,15 +1,17 @@
 {
   "images" : [
     {
+      "filename" : "splash-1x.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
+      "filename" : "splash-2x.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
     {
-      "filename" : "appicon1024x1024.png",
+      "filename" : "splash-3x.png",
       "idiom" : "universal",
       "scale" : "3x"
     }
