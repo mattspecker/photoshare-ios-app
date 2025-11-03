@@ -16,9 +16,6 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
     
     // MARK: - Properties
-    private var currentPhotos: [[String: String]] = []
-    private var currentStartIndex: Int = 0
-    private var currentDisplayIndex: Int = 0  // Track which photo is currently displayed
     
     // MARK: - Plugin Lifecycle
     override public func load() {
@@ -35,7 +32,7 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
     
     @objc func openGallery(_ call: CAPPluginCall) {
         NSLog("🖼️ NativeGallery: openGallery called")
-        NSLog("🖼️ Call parameters: \(call.options)")
+        NSLog("🖼️ Call parameters: \(String(describing: call.options))")
         
         guard let photos = call.getArray("photos", JSObject.self) else {
             NSLog("❌ Photos array is missing or invalid")
@@ -53,9 +50,7 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
         var imageList: [[String: String]] = []
         
         for photo in photos {
-            guard let photoDict = photo as? [String: Any] else {
-                continue
-            }
+            let photoDict = photo as [String: Any]
             
             // Use thumbnailUrl for gallery display, fallback to url for backward compatibility
             let thumbnailUrl = photoDict["thumbnailUrl"] as? String ?? photoDict["url"] as? String ?? ""
@@ -79,28 +74,16 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
             ])
         }
         
-        // Get just the selected image if startIndex is valid
-        var selectedImage: [String: String]?
-        if startIndex >= 0 && startIndex < imageList.count {
-            selectedImage = imageList[startIndex]
-            NSLog("🎯 Selected image at index \(startIndex): \(selectedImage?["url"] ?? "no-url")")
-        }
-        
         if imageList.isEmpty {
             call.reject("No valid photos found in array")
             return
         }
         
-        // Store current photos for other operations
-        self.currentPhotos = imageList
-        self.currentStartIndex = startIndex
-        self.currentDisplayIndex = startIndex  // Initialize display index
-        
         NSLog("🖼️ Opening gallery with \(imageList.count) photos, starting at index \(startIndex)")
         
         DispatchQueue.main.async {
-            // Always use full gallery with correct startIndex now that we know it works
-            self.presentPhotoViewer(imageList: imageList, startIndex: startIndex, call: call)
+            // Use our custom ImageViewerViewController instead of PhotoViewer plugin
+            self.presentCustomGallery(imageList: imageList, startIndex: startIndex, call: call)
         }
     }
     
@@ -170,88 +153,75 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - Private Helper Methods
     
-    private func presentSinglePhoto(photo: [String: String], call: CAPPluginCall) {
-        NSLog("🎯 Opening single photo: \(photo["fullUrl"] ?? "no-url")")
-        
-        // Create single image array for PhotoViewer using fullUrl
-        let userName = photo["uploadedBy"] ?? "Unknown"
-        let singleImage = [
-            "url": photo["fullUrl"] ?? "",
-            "title": "1/1",
-            "subtitle": "Photo by \(userName)"
-        ]
-        
-        // Simple JavaScript call for single image
-        let jsCode = """
-        console.log('🎯 Opening single photo');
-        window.Capacitor.Plugins.PhotoViewer.show({
-            images: [\(convertToJSONString(singleImage))],
-            mode: 'one',
-            startIndex: 0
-        });
-        """
-        
-        NSLog("🎯 Executing single photo JavaScript")
-        self.bridge?.webView?.evaluateJavaScript(jsCode, completionHandler: nil)
-        call.resolve(["success": true])
-    }
     
-    private func presentPhotoViewer(imageList: [[String: String]], startIndex: Int, call: CAPPluginCall) {
-        NSLog("🖼️ Opening PhotoViewer with \(imageList.count) photos")
+    private func presentCustomGallery(imageList: [[String: String]], startIndex: Int, call: CAPPluginCall) {
+        NSLog("🖼️ Opening custom ImageViewerViewController with \(imageList.count) photos")
         NSLog("🖼️ Start index: \(startIndex)")
         
         DispatchQueue.main.async {
-            // Prepare data for PhotoViewer plugin
-            var photoViewerImages: [[String: Any]] = []
-            
-            for (index, photo) in imageList.enumerated() {
-                let currentPosition = index + 1  // 1-based counting for display
-                let totalCount = imageList.count
-                let userName = photo["uploadedBy"] ?? "Unknown"
-                
-                let imageData = [
-                    "url": photo["fullUrl"] ?? "",  // Use fullUrl for both display and share
-                    "title": "\(currentPosition)/\(totalCount)",
-                    "subtitle": "Photo by \(userName)"
-                ]
-                photoViewerImages.append(imageData)
-                NSLog("🖼️ Added full-res photo: \(photo["fullUrl"] ?? "no-url") - \(currentPosition)/\(totalCount)")
+            guard let topViewController = self.bridge?.viewController else {
+                call.reject("Could not get view controller")
+                return
             }
             
-            NSLog("🖼️ Calling PhotoViewer plugin directly with correct parameters")
+            // Convert imageList to GalleryPhotoItem array
+            var galleryPhotos: [GalleryPhotoItem] = []
             
-            // Call PhotoViewer plugin directly like the original implementation
-            if let photoViewerPlugin = self.bridge?.plugin(withName: "PhotoViewer") {
-                NSLog("🖼️ Found PhotoViewer plugin, creating JavaScript call")
+            for photo in imageList {
+                print("📋 [PHOTO DEBUG] Raw photo data from web:")
+                print("  - id: '\(photo["id"] ?? "nil")'")
+                print("  - uploadedBy: '\(photo["uploadedBy"] ?? "nil")'")
+                print("  - uploadedAt: '\(photo["uploadedAt"] ?? "nil")'")
+                print("  - uploadDate: '\(photo["uploadDate"] ?? "nil")'")
+                print("  - created_at: '\(photo["created_at"] ?? "nil")'")
+                print("  - createdAt: '\(photo["createdAt"] ?? "nil")'")
+                print("  - timestamp: '\(photo["timestamp"] ?? "nil")'")
+                print("  - isOwn: '\(photo["isOwn"] ?? "nil")'")
+                print("  - All keys: \(photo.keys.sorted())")
                 
-                NSLog("🖼️ About to call PhotoViewer with startIndex: \(startIndex) for \(photoViewerImages.count) images")
+                // Try multiple date fields to find the correct one
+                let dateFields = [
+                    photo["created_at"] as? String,
+                    photo["createdAt"] as? String, 
+                    photo["uploadedAt"] as? String,
+                    photo["uploadDate"] as? String,
+                    photo["timestamp"] as? String
+                ].compactMap { $0 }.filter { !$0.isEmpty }
                 
-                // Use correct parameter name: startFrom instead of startIndex
-                let jsCode = """
-                console.log('🚀 Opening PhotoViewer gallery with startFrom: \(startIndex)');
-                window.Capacitor.Plugins.PhotoViewer.show({
-                    images: \(self.convertToJSONString(photoViewerImages)),
-                    mode: 'slider',
-                    startFrom: \(startIndex)
-                });
-                """
+                let uploadDate = dateFields.first ?? ""
+                print("  - Selected date field: '\(uploadDate)' from \(dateFields.count) available")
+                print("  - Creating GalleryPhotoItem with uploadDate: '\(uploadDate)'")
                 
-                NSLog("🖼️ Executing simplified JavaScript call")
+                let galleryPhoto = GalleryPhotoItem(
+                    thumbnailUrl: photo["thumbnailUrl"] ?? "",
+                    fullUrl: photo["fullUrl"] ?? "",
+                    title: photo["title"] ?? "",
+                    uploader: photo["uploadedBy"] ?? "Unknown",
+                    uploadDate: uploadDate,
+                    photoId: photo["id"] ?? "",
+                    isOwn: photo["isOwn"]?.lowercased() == "true"
+                )
                 
-                // Use the same approach that worked for single image
-                self.bridge?.webView?.evaluateJavaScript(jsCode, completionHandler: nil)
-                
-                // Add overlay buttons after a short delay to let PhotoViewer load
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.addOverlayButtons()
-                    self.startMonitoringPhotoViewerSwipes()
-                }
-                
-                call.resolve(["success": true])
-            } else {
-                NSLog("❌ PhotoViewer plugin not found")
-                call.reject("PhotoViewer plugin not available")
+                print("  - GalleryPhotoItem created with uploadDate: '\(galleryPhoto.getUploadDate())')")
+                galleryPhotos.append(galleryPhoto)
             }
+            
+            // Create and configure the custom gallery
+            let galleryVC = ImageViewerViewController()
+            let reportCallback: (String) -> Void = { [weak self] photoId in
+                NSLog("⚠️ Reporting photo: \(photoId)")
+                self?.notifyListeners("photoReported", data: ["photoId": photoId])
+            }
+            galleryVC.configure(
+                photos: galleryPhotos,
+                initialIndex: startIndex,
+                onReportPhoto: reportCallback
+            )
+            
+            galleryVC.modalPresentationStyle = .fullScreen
+            topViewController.present(galleryVC, animated: true)
+            
+            call.resolve(["success": true])
         }
     }
     
@@ -277,413 +247,7 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
-    private func addOverlayButtons() {
-        NSLog("🔘 Adding overlay buttons to PhotoViewer")
-        
-        guard let topViewController = self.bridge?.viewController else {
-            NSLog("❌ Could not get top view controller for overlay")
-            return
-        }
-        
-        // Find the top-most presented view controller (PhotoViewer)
-        var presentedVC = topViewController
-        while let presented = presentedVC.presentedViewController {
-            presentedVC = presented
-        }
-        
-        // Create username label for "Photo by username"
-        let usernameLabel = UILabel()
-        usernameLabel.text = self.getCurrentUserText()
-        usernameLabel.font = UIFont(name: "Outfit-Medium", size: 16) ?? UIFont.systemFont(ofSize: 16, weight: .medium)
-        usernameLabel.textColor = .white
-        usernameLabel.backgroundColor = UIColor.clear
-        usernameLabel.textAlignment = .left
-        usernameLabel.translatesAutoresizingMaskIntoConstraints = false
-        usernameLabel.tag = 9999  // Tag to find and update later
-        
-        // Create download button - icon only with 48x48 touch area
-        let downloadButton = UIButton(type: .system)
-        downloadButton.setTitle("📥", for: .normal)
-        downloadButton.titleLabel?.font = UIFont(name: "Outfit-Medium", size: 24) ?? UIFont.systemFont(ofSize: 24, weight: .medium)
-        downloadButton.backgroundColor = UIColor.black.withAlphaComponent(0.7)
-        downloadButton.setTitleColor(.white, for: .normal)
-        downloadButton.layer.cornerRadius = 24
-        downloadButton.translatesAutoresizingMaskIntoConstraints = false
-        downloadButton.addTarget(self, action: #selector(downloadButtonTapped), for: .touchUpInside)
-        
-        // Create report button - icon only with 48x48 touch area (only show if not user's own photo)
-        let reportButton = UIButton(type: .system)
-        reportButton.setTitle("⚠️", for: .normal)
-        reportButton.titleLabel?.font = UIFont(name: "Outfit-Medium", size: 24) ?? UIFont.systemFont(ofSize: 24, weight: .medium)
-        reportButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
-        reportButton.setTitleColor(.white, for: .normal)
-        reportButton.layer.cornerRadius = 24
-        reportButton.translatesAutoresizingMaskIntoConstraints = false
-        reportButton.addTarget(self, action: #selector(reportButtonTapped), for: .touchUpInside)
-        reportButton.tag = 8888  // Tag to find and update visibility later
-        
-        // Add elements to the presented view controller
-        presentedVC.view.addSubview(usernameLabel)
-        presentedVC.view.addSubview(downloadButton)
-        presentedVC.view.addSubview(reportButton)
-        
-        // Position elements in a single row
-        NSLayoutConstraint.activate([
-            // Username label - bottom left
-            usernameLabel.leadingAnchor.constraint(equalTo: presentedVC.view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            usernameLabel.bottomAnchor.constraint(equalTo: presentedVC.view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
-            usernameLabel.heightAnchor.constraint(equalToConstant: 48), // Match button height for alignment
-            
-            // Report button - bottom right (rightmost)
-            reportButton.trailingAnchor.constraint(equalTo: presentedVC.view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
-            reportButton.bottomAnchor.constraint(equalTo: presentedVC.view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
-            reportButton.widthAnchor.constraint(equalToConstant: 48),
-            reportButton.heightAnchor.constraint(equalToConstant: 48),
-            
-            // Download button - next to report button
-            downloadButton.trailingAnchor.constraint(equalTo: reportButton.leadingAnchor, constant: -10),
-            downloadButton.bottomAnchor.constraint(equalTo: presentedVC.view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
-            downloadButton.widthAnchor.constraint(equalToConstant: 48),
-            downloadButton.heightAnchor.constraint(equalToConstant: 48),
-            
-            // Ensure username label doesn't overlap buttons
-            usernameLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadButton.leadingAnchor, constant: -20)
-        ])
-        
-        // Set initial report button visibility based on current photo ownership
-        self.updateReportButtonVisibility(presentedVC: presentedVC)
-        
-        NSLog("✅ Overlay buttons and username label added successfully")
-    }
     
-    private func startMonitoringPhotoViewerSwipes() {
-        // Monitor for swipe events by checking the current visible image periodically
-        // This is a workaround since PhotoViewer doesn't provide swipe callbacks
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
-            // Check if PhotoViewer is still presented
-            guard let topViewController = self.bridge?.viewController else {
-                timer.invalidate()
-                return
-            }
-            
-            var presentedVC = topViewController
-            while let presented = presentedVC.presentedViewController {
-                presentedVC = presented
-            }
-            
-            // If PhotoViewer is dismissed, stop monitoring
-            if presentedVC == topViewController {
-                timer.invalidate()
-                NSLog("🛑 PhotoViewer dismissed, stopping swipe monitoring")
-                return
-            }
-            
-            // Try to detect current photo index via JavaScript
-            self.updateCurrentPhotoIndex()
-            
-            // Update username label when swipe is detected
-            self.updateUsernameLabel(presentedVC: presentedVC)
-        }
-    }
-    
-    private func updateCurrentPhotoIndex() {
-        // Use the same improved JavaScript logic to detect current index
-        let jsCode = """
-        (function() {
-            try {
-                // Strategy 1: Check PhotoViewer native implementation methods
-                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PhotoViewer) {
-                    const viewer = window.Capacitor.Plugins.PhotoViewer;
-                    if (viewer.getCurrentIndex && typeof viewer.getCurrentIndex === 'function') {
-                        const index = viewer.getCurrentIndex();
-                        if (typeof index === 'number' && index >= 0) {
-                            return index;
-                        }
-                    }
-                }
-                
-                // Strategy 2: Check for PhotoViewer DOM elements
-                const containers = ['.photoviewer-container', '.swiper-container', '.photoviewer-modal'];
-                for (const selector of containers) {
-                    const container = document.querySelector(selector);
-                    if (container) {
-                        const activeSlide = container.querySelector('.swiper-slide-active, .active');
-                        if (activeSlide) {
-                            const slideIndex = activeSlide.getAttribute('data-index') || 
-                                             activeSlide.getAttribute('data-slide-index');
-                            if (slideIndex && !isNaN(parseInt(slideIndex))) {
-                                return parseInt(slideIndex);
-                            }
-                        }
-                    }
-                }
-                
-                return \(self.currentDisplayIndex); // Fallback to current stored index
-            } catch (e) {
-                return \(self.currentDisplayIndex);
-            }
-        })();
-        """
-        
-        self.bridge?.webView?.evaluateJavaScript(jsCode) { result, error in
-            if let newIndex = result as? Int, 
-               newIndex != self.currentDisplayIndex && 
-               newIndex >= 0 && 
-               newIndex < self.currentPhotos.count {
-                self.currentDisplayIndex = newIndex
-                NSLog("📱 Swipe detected: Updated current photo index to \(newIndex)")
-            }
-        }
-    }
-    
-    private func updateUsernameLabel(presentedVC: UIViewController) {
-        // Find the username label by tag
-        if let usernameLabel = presentedVC.view.viewWithTag(9999) as? UILabel {
-            let newText = self.getCurrentUserText()
-            if usernameLabel.text != newText {
-                usernameLabel.text = newText
-                NSLog("📝 Updated username label to: \(newText)")
-            }
-        }
-        
-        // Update report button visibility based on photo ownership
-        self.updateReportButtonVisibility(presentedVC: presentedVC)
-    }
-    
-    private func updateReportButtonVisibility(presentedVC: UIViewController) {
-        // Find the report button by tag
-        if let reportButton = presentedVC.view.viewWithTag(8888) as? UIButton {
-            let isOwnPhoto = self.isCurrentPhotoOwnedByUser()
-            reportButton.isHidden = isOwnPhoto
-            NSLog("📝 Report button visibility: \(isOwnPhoto ? "hidden" : "visible") (isOwn: \(isOwnPhoto))")
-        }
-    }
-    
-    private func isCurrentPhotoOwnedByUser() -> Bool {
-        guard currentDisplayIndex >= 0 && currentDisplayIndex < currentPhotos.count else {
-            return false
-        }
-        
-        let currentPhoto = currentPhotos[currentDisplayIndex]
-        let isOwn = currentPhoto["isOwn"] ?? "false"
-        return isOwn.lowercased() == "true"
-    }
-    
-    private func getCurrentPhotoIndex() -> Int {
-        // Since PhotoViewer doesn't expose the current index,
-        // we'll use JavaScript to query the current state
-        // For now, we'll use the stored index which will be updated via JavaScript
-        return self.currentDisplayIndex
-    }
-    
-    private func getCurrentUserText() -> String {
-        guard self.currentDisplayIndex >= 0 && self.currentDisplayIndex < self.currentPhotos.count else {
-            return "Photo by Unknown"
-        }
-        
-        let currentPhoto = self.currentPhotos[self.currentDisplayIndex]
-        let userName = currentPhoto["uploadedBy"] ?? "Unknown"
-        return "Photo by \(userName)"
-    }
-    
-    @objc private func downloadButtonTapped() {
-        NSLog("📥 Download button tapped")
-        
-        // Use improved JavaScript to get the current PhotoViewer index
-        let jsCode = """
-        (function() {
-            try {
-                console.log('🔍 Attempting to get PhotoViewer current index...');
-                
-                // Strategy 1: Check PhotoViewer native implementation methods
-                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PhotoViewer) {
-                    const viewer = window.Capacitor.Plugins.PhotoViewer;
-                    if (viewer.getCurrentIndex && typeof viewer.getCurrentIndex === 'function') {
-                        const index = viewer.getCurrentIndex();
-                        console.log('📍 PhotoViewer getCurrentIndex returned:', index);
-                        if (typeof index === 'number' && index >= 0) {
-                            return index;
-                        }
-                    }
-                }
-                
-                // Strategy 2: Check for PhotoViewer DOM elements
-                const containers = [
-                    '.photoviewer-container',
-                    '.swiper-container', 
-                    '.photoviewer-modal',
-                    '[data-photoviewer]'
-                ];
-                
-                for (const selector of containers) {
-                    const container = document.querySelector(selector);
-                    if (container) {
-                        console.log('📍 Found PhotoViewer container:', selector);
-                        
-                        // Check various index attributes
-                        const indexSources = [
-                            container.getAttribute('data-current-index'),
-                            container.getAttribute('data-index'),
-                            container.getAttribute('data-slide-index')
-                        ];
-                        
-                        for (const indexStr of indexSources) {
-                            if (indexStr && !isNaN(parseInt(indexStr))) {
-                                const index = parseInt(indexStr);
-                                console.log('📍 Found index from container attribute:', index);
-                                return index;
-                            }
-                        }
-                        
-                        // Check for active slide
-                        const activeSlide = container.querySelector('.swiper-slide-active, .active, [data-active="true"]');
-                        if (activeSlide) {
-                            const slideIndex = activeSlide.getAttribute('data-index') || 
-                                             activeSlide.getAttribute('data-slide-index');
-                            if (slideIndex && !isNaN(parseInt(slideIndex))) {
-                                const index = parseInt(slideIndex);
-                                console.log('📍 Found index from active slide:', index);
-                                return index;
-                            }
-                        }
-                    }
-                }
-                
-                // Strategy 3: Look for image elements with src matching our photo URLs
-                const images = document.querySelectorAll('img[src*="supabase"], img[src*="photoshare"]');
-                if (images.length > 0) {
-                    console.log('📍 Found', images.length, 'PhotoShare images, analyzing...');
-                    // Try to match visible image with our photo list
-                    for (let i = 0; i < images.length; i++) {
-                        const img = images[i];
-                        if (img.offsetWidth > 0 && img.offsetHeight > 0) {
-                            // This image is visible, try to match it with our photos
-                            const imgSrc = img.src;
-                            console.log('📍 Visible image src:', imgSrc);
-                            // Return the middle index as a reasonable guess if we have multiple images
-                            return Math.floor(images.length / 2);
-                        }
-                    }
-                }
-                
-                console.log('⚠️ All PhotoViewer index detection strategies failed, using fallback');
-                return \(self.currentDisplayIndex);
-                
-            } catch (e) {
-                console.error('❌ Error getting PhotoViewer index:', e);
-                return \(self.currentDisplayIndex);
-            }
-        })();
-        """
-        
-        self.bridge?.webView?.evaluateJavaScript(jsCode) { result, error in
-            DispatchQueue.main.async {
-                let detectedIndex = (result as? Int) ?? self.currentDisplayIndex
-                
-                // Additional safety check: ensure we have a reasonable index
-                let finalIndex = max(0, min(detectedIndex, self.currentPhotos.count - 1))
-                
-                NSLog("📥 Detected index: \(detectedIndex), Using final index: \(finalIndex) (total photos: \(self.currentPhotos.count))")
-                
-                // Update our stored display index to the detected one
-                self.currentDisplayIndex = finalIndex
-                
-                // Get current photo based on final index
-                guard finalIndex >= 0 && finalIndex < self.currentPhotos.count else {
-                    NSLog("❌ Invalid photo index: \(finalIndex)")
-                    self.showToast(message: "❌ Error: Invalid photo index")
-                    return
-                }
-                
-                let photo = self.currentPhotos[finalIndex]
-                let fullUrl = photo["fullUrl"] ?? ""
-                let photoId = photo["id"] ?? "unknown"
-                
-                NSLog("📥 Downloading photo ID \(photoId) at index \(finalIndex): \(fullUrl)")
-                
-                // Create a temporary CAPPluginCall for the download method
-                let call = CAPPluginCall(callbackId: "download-\(UUID().uuidString)", 
-                                         options: ["url": fullUrl],
-                                         success: { _, _ in
-                                             DispatchQueue.main.async {
-                                                 NSLog("✅ Download completed successfully for photo \(photoId)")
-                                                 self.showToast(message: "✅ Photo saved to gallery!")
-                                             }
-                                         },
-                                         error: { _ in
-                                             DispatchQueue.main.async {
-                                                 NSLog("❌ Download failed for photo \(photoId)")
-                                                 self.showToast(message: "❌ Download failed")
-                                             }
-                                         })
-                
-                if let pluginCall = call {
-                    self.downloadImageFromUrl(url: fullUrl, call: pluginCall)
-                }
-            }
-        }
-    }
-    
-    @objc private func reportButtonTapped() {
-        NSLog("⚠️ Report button tapped")
-        
-        // Get current photo based on display index
-        guard currentDisplayIndex >= 0 && currentDisplayIndex < currentPhotos.count else {
-            NSLog("❌ Invalid photo index")
-            self.showToast(message: "❌ Error: Invalid photo")
-            return
-        }
-        
-        let photo = currentPhotos[currentDisplayIndex]
-        let photoId = photo["id"] ?? ""
-        
-        NSLog("⚠️ Reporting photo: \(photoId)")
-        
-        // Send callback to web app
-        self.notifyListeners("photoReported", data: ["photoId": photoId])
-        
-        // Show confirmation toast
-        self.showToast(message: "⚠️ Photo reported")
-    }
-    
-    private func showToast(message: String) {
-        guard let topViewController = self.bridge?.viewController else { return }
-        
-        // Find the presented view controller (PhotoViewer)
-        var presentedVC = topViewController
-        while let presented = presentedVC.presentedViewController {
-            presentedVC = presented
-        }
-        
-        // Create toast label
-        let toastLabel = UILabel()
-        toastLabel.backgroundColor = UIColor.black.withAlphaComponent(0.8)
-        toastLabel.textColor = UIColor.white
-        toastLabel.textAlignment = .center
-        toastLabel.font = UIFont(name: "Outfit-Regular", size: 16) ?? UIFont.systemFont(ofSize: 16)
-        toastLabel.text = message
-        toastLabel.alpha = 1.0
-        toastLabel.layer.cornerRadius = 20
-        toastLabel.clipsToBounds = true
-        toastLabel.translatesAutoresizingMaskIntoConstraints = false
-        
-        presentedVC.view.addSubview(toastLabel)
-        
-        // Position toast in center
-        NSLayoutConstraint.activate([
-            toastLabel.centerXAnchor.constraint(equalTo: presentedVC.view.centerXAnchor),
-            toastLabel.centerYAnchor.constraint(equalTo: presentedVC.view.centerYAnchor, constant: 100),
-            toastLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 300),
-            toastLabel.heightAnchor.constraint(equalToConstant: 40)
-        ])
-        
-        // Animate toast
-        UIView.animate(withDuration: 2.0, delay: 1.0, options: .curveEaseOut, animations: {
-            toastLabel.alpha = 0.0
-        }, completion: { _ in
-            toastLabel.removeFromSuperview()
-        })
-    }
     
     private func downloadImageFromUrl(url: String, call: CAPPluginCall) {
         guard let imageUrl = URL(string: url) else {
@@ -767,5 +331,474 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
             }
         }.resume()
+    }
+}
+
+// MARK: - ImageViewerViewController
+
+class ImageViewerViewController: UIViewController {
+    private var pageViewController: UIPageViewController!
+    private var photos: [GalleryPhotoItem] = []
+    private var currentIndex: Int = 0
+    private var onReportPhoto: ((String) -> Void)?
+    
+    // UI Components
+    private let topBarContainer = UIView()
+    private let bottomBarContainer = UIView()
+    private let shareButton = UIButton(type: .system)
+    private let closeButton = UIButton(type: .system)
+    private let downloadButton = UIButton(type: .system)
+    private let reportButton = UIButton(type: .system)
+    private let photoByLabel = UILabel()
+    private let uploadedOnLabel = UILabel()
+    private let photoCounterLabel = UILabel()
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupUI()
+        setupPageViewController()
+        updateUI()
+    }
+    
+    func configure(photos: [GalleryPhotoItem], initialIndex: Int, onReportPhoto: @escaping (String) -> Void) {
+        self.photos = photos
+        self.currentIndex = initialIndex
+        self.onReportPhoto = onReportPhoto
+    }
+    
+    private func setupUI() {
+        view.backgroundColor = .black
+        
+        setupTopBar()
+        setupBottomBar()
+        setupConstraints()
+    }
+    
+    private func setupTopBar() {
+        topBarContainer.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        
+        // Close button (top right)
+        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.tintColor = .white
+        closeButton.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
+        
+        // Share button (top left)
+        shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        shareButton.tintColor = .white
+        shareButton.addTarget(self, action: #selector(shareButtonTapped), for: .touchUpInside)
+        
+        // Photo counter label (centered between share and close)
+        photoCounterLabel.textColor = .white
+        photoCounterLabel.font = UIFont.boldSystemFont(ofSize: 16)
+        photoCounterLabel.textAlignment = .center
+        
+        topBarContainer.addSubview(closeButton)
+        topBarContainer.addSubview(shareButton)
+        topBarContainer.addSubview(photoCounterLabel)
+        view.addSubview(topBarContainer)
+    }
+    
+    private func setupBottomBar() {
+        bottomBarContainer.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        
+        // Download button
+        downloadButton.setImage(UIImage(systemName: "arrow.down.to.line"), for: .normal)
+        downloadButton.tintColor = .white
+        downloadButton.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        downloadButton.layer.cornerRadius = 24
+        downloadButton.addTarget(self, action: #selector(downloadButtonTapped), for: .touchUpInside)
+        
+        // Report button with red flag
+        reportButton.setImage(UIImage(systemName: "flag.fill"), for: .normal)
+        reportButton.tintColor = .red
+        reportButton.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        reportButton.layer.cornerRadius = 24
+        reportButton.addTarget(self, action: #selector(reportButtonTapped), for: .touchUpInside)
+        
+        // Photo by label (first line, bold, larger)
+        photoByLabel.textColor = .white
+        photoByLabel.font = UIFont.boldSystemFont(ofSize: 18) // 1.25x larger than 14.4, rounded to 18
+        photoByLabel.textAlignment = .left
+        
+        // Uploaded on label (second line, regular, smaller)
+        uploadedOnLabel.textColor = .white
+        uploadedOnLabel.font = UIFont.systemFont(ofSize: 14)
+        uploadedOnLabel.textAlignment = .left
+        
+        bottomBarContainer.addSubview(downloadButton)
+        bottomBarContainer.addSubview(reportButton)
+        bottomBarContainer.addSubview(photoByLabel)
+        bottomBarContainer.addSubview(uploadedOnLabel)
+        view.addSubview(bottomBarContainer)
+    }
+    
+    private func setupConstraints() {
+        topBarContainer.translatesAutoresizingMaskIntoConstraints = false
+        bottomBarContainer.translatesAutoresizingMaskIntoConstraints = false
+        shareButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        downloadButton.translatesAutoresizingMaskIntoConstraints = false
+        reportButton.translatesAutoresizingMaskIntoConstraints = false
+        photoByLabel.translatesAutoresizingMaskIntoConstraints = false
+        uploadedOnLabel.translatesAutoresizingMaskIntoConstraints = false
+        photoCounterLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            // Top bar constraints
+            topBarContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            topBarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBarContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topBarContainer.heightAnchor.constraint(equalToConstant: 60),
+            
+            // Share button (top left)
+            shareButton.leadingAnchor.constraint(equalTo: topBarContainer.leadingAnchor, constant: 20),
+            shareButton.centerYAnchor.constraint(equalTo: topBarContainer.centerYAnchor),
+            shareButton.widthAnchor.constraint(equalToConstant: 44),
+            shareButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Photo counter (centered between share and close)
+            photoCounterLabel.centerXAnchor.constraint(equalTo: topBarContainer.centerXAnchor),
+            photoCounterLabel.centerYAnchor.constraint(equalTo: topBarContainer.centerYAnchor),
+            
+            // Close button (top right)
+            closeButton.trailingAnchor.constraint(equalTo: topBarContainer.trailingAnchor, constant: -20),
+            closeButton.centerYAnchor.constraint(equalTo: topBarContainer.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            // Bottom bar constraints
+            bottomBarContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            bottomBarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomBarContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomBarContainer.heightAnchor.constraint(equalToConstant: 80),
+            
+            // Photo by label (first line, left aligned)
+            photoByLabel.topAnchor.constraint(equalTo: bottomBarContainer.topAnchor, constant: 12),
+            photoByLabel.leadingAnchor.constraint(equalTo: bottomBarContainer.leadingAnchor, constant: 20),
+            photoByLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadButton.leadingAnchor, constant: -20),
+            
+            // Uploaded on label (second line, left aligned)
+            uploadedOnLabel.topAnchor.constraint(equalTo: photoByLabel.bottomAnchor, constant: 2),
+            uploadedOnLabel.leadingAnchor.constraint(equalTo: bottomBarContainer.leadingAnchor, constant: 20),
+            uploadedOnLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadButton.leadingAnchor, constant: -20),
+            
+            // Download button (bottom right, left of report button)
+            downloadButton.trailingAnchor.constraint(equalTo: reportButton.leadingAnchor, constant: -12),
+            downloadButton.centerYAnchor.constraint(equalTo: bottomBarContainer.centerYAnchor),
+            downloadButton.widthAnchor.constraint(equalToConstant: 48),
+            downloadButton.heightAnchor.constraint(equalToConstant: 48),
+            
+            // Report button (bottom right, rightmost)
+            reportButton.trailingAnchor.constraint(equalTo: bottomBarContainer.trailingAnchor, constant: -20),
+            reportButton.centerYAnchor.constraint(equalTo: bottomBarContainer.centerYAnchor),
+            reportButton.widthAnchor.constraint(equalToConstant: 48),
+            reportButton.heightAnchor.constraint(equalToConstant: 48)
+        ])
+    }
+    
+    private func setupPageViewController() {
+        pageViewController = UIPageViewController(
+            transitionStyle: .scroll,
+            navigationOrientation: .horizontal,
+            options: nil
+        )
+        
+        pageViewController.delegate = self
+        pageViewController.dataSource = self
+        
+        addChild(pageViewController)
+        view.insertSubview(pageViewController.view, at: 0)
+        pageViewController.didMove(toParent: self)
+        
+        // Setup page view controller constraints
+        pageViewController.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            pageViewController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            pageViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pageViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pageViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        
+        // Set initial view controller
+        if !photos.isEmpty {
+            let initialViewController = createPhotoViewController(at: currentIndex)
+            pageViewController.setViewControllers([initialViewController], direction: .forward, animated: false)
+        }
+    }
+    
+    private func createPhotoViewController(at index: Int) -> PhotoPageViewController {
+        let photoVC = PhotoPageViewController()
+        photoVC.configure(photo: photos[index], index: index)
+        return photoVC
+    }
+    
+    private func updateUI() {
+        guard currentIndex < photos.count else { return }
+        
+        let currentPhoto = photos[currentIndex]
+        
+        // Update photo counter (n/N)
+        photoCounterLabel.text = "\(currentIndex + 1)/\(photos.count)"
+        
+        // Update photo by label (first line, bold)
+        let photoBy = currentPhoto.getUploader()
+        photoByLabel.text = photoBy.isEmpty ? "Photo by Unknown" : "Photo by \(photoBy)"
+        
+        // Update uploaded on label (second line, regular)
+        let uploadDate = currentPhoto.getUploadDate()
+        print("🗓️ [UI DEBUG] Photo \(currentIndex): id='\(currentPhoto.getPhotoId())', uploadDate='\(uploadDate)'")
+        if !uploadDate.isEmpty {
+            uploadedOnLabel.text = "Uploaded on \(formatDate(uploadDate))"
+        } else {
+            uploadedOnLabel.text = "Uploaded on Unknown date"
+        }
+        
+        // Hide report button if user owns the photo
+        reportButton.isHidden = currentPhoto.getIsOwn()
+    }
+    
+    private func formatDate(_ dateString: String) -> String {
+        print("🗓️ [DATE DEBUG] Raw upload date from GalleryPhotoItem: '\(dateString)'")
+        
+        // Try to parse and format the date string
+        let inputFormatter = DateFormatter()
+        inputFormatter.timeZone = TimeZone(identifier: "UTC")
+        
+        // Try common ISO formats including timezone offset
+        let formats = [
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS+00:00",  // 2025-10-24T13:59:22.585283+00:00
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSS+00:00",   // 5 microseconds
+            "yyyy-MM-dd'T'HH:mm:ss.SSSS+00:00",    // 4 microseconds
+            "yyyy-MM-dd'T'HH:mm:ss.SSS+00:00",     // 3 microseconds
+            "yyyy-MM-dd'T'HH:mm:ss+00:00",         // No microseconds
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",     // Z format
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd"
+        ]
+        
+        for format in formats {
+            inputFormatter.dateFormat = format
+            if let date = inputFormatter.date(from: dateString) {
+                let outputFormatter = DateFormatter()
+                outputFormatter.dateFormat = "MMM d, yyyy" // Explicit format: Nov 2, 2024
+                outputFormatter.timeZone = TimeZone.current
+                let formattedDate = outputFormatter.string(from: date)
+                print("🗓️ [DATE DEBUG] Parsed '\(dateString)' as '\(formattedDate)' using format '\(format)'")
+                return formattedDate
+            }
+        }
+        
+        // If parsing fails, return the original string for debugging
+        print("⚠️ [DATE DEBUG] Failed to parse date: '\(dateString)'")
+        return dateString
+    }
+    
+    @objc private func closeButtonTapped() {
+        dismiss(animated: true)
+    }
+    
+    @objc private func shareButtonTapped() {
+        guard currentIndex < photos.count else { return }
+        
+        let currentPhoto = photos[currentIndex]
+        let imageUrl = currentPhoto.getFullUrl().isEmpty ? currentPhoto.getThumbnailUrl() : currentPhoto.getFullUrl()
+        
+        guard let url = URL(string: imageUrl) else { return }
+        
+        // Download image and share
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let data = data, let image = UIImage(data: data) else { return }
+            
+            DispatchQueue.main.async {
+                let activityVC = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+                activityVC.popoverPresentationController?.sourceView = self?.shareButton
+                self?.present(activityVC, animated: true)
+            }
+        }.resume()
+    }
+    
+    @objc private func downloadButtonTapped() {
+        guard currentIndex < photos.count else { return }
+        
+        let currentPhoto = photos[currentIndex]
+        downloadPhotoFromUrl(url: currentPhoto.getFullUrl().isEmpty ? currentPhoto.getThumbnailUrl() : currentPhoto.getFullUrl(), photoId: currentPhoto.getPhotoId())
+    }
+    
+    @objc private func reportButtonTapped() {
+        guard currentIndex < photos.count else { return }
+        
+        let currentPhoto = photos[currentIndex]
+        let photoBy = currentPhoto.getUploader()
+        
+        let alert = UIAlertController(
+            title: "Report Photo", 
+            message: "Are you sure you want to report this photo by \(photoBy)? This action will notify the event organizer.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Report", style: .destructive) { _ in
+            self.onReportPhoto?(currentPhoto.getPhotoId())
+            self.showAlert(title: "Photo Reported", message: "Thank you for reporting this photo. The event organizer has been notified.")
+        })
+        
+        present(alert, animated: true)
+    }
+    
+    private func downloadPhotoFromUrl(url: String, photoId: String) {
+        guard let imageUrl = URL(string: url) else {
+            print("❌ [DOWNLOAD] Invalid URL: \(url)")
+            return
+        }
+        
+        print("🔽 [DOWNLOAD] Starting download for photo: \(photoId)")
+        
+        URLSession.shared.dataTask(with: imageUrl) { [weak self] data, response, error in
+            if let error = error {
+                print("❌ [DOWNLOAD] Network error: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let data = data else {
+                print("❌ [DOWNLOAD] No data received")
+                return
+            }
+            
+            guard let image = UIImage(data: data) else {
+                print("❌ [DOWNLOAD] Failed to create image from data")
+                return
+            }
+            
+            DispatchQueue.main.async {
+                UIImageWriteToSavedPhotosAlbum(image, self, #selector(self?.image(_:didFinishSavingWithError:contextInfo:)), nil)
+            }
+        }.resume()
+    }
+    
+    @objc private func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
+        if let error = error {
+            print("❌ [DOWNLOAD] Failed to save image: \(error.localizedDescription)")
+            showAlert(title: "Download Failed", message: "Failed to save photo to camera roll")
+        } else {
+            print("✅ [DOWNLOAD] Image saved successfully")
+            showAlert(title: "Download Complete", message: "Photo saved to camera roll")
+        }
+    }
+    
+    private func showAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+}
+
+// MARK: - UIPageViewControllerDataSource
+extension ImageViewerViewController: UIPageViewControllerDataSource {
+    func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
+        guard let photoVC = viewController as? PhotoPageViewController,
+              photoVC.index > 0 else { return nil }
+        
+        return createPhotoViewController(at: photoVC.index - 1)
+    }
+    
+    func pageViewController(_ pageViewController: UIPageViewController, viewControllerAfter viewController: UIViewController) -> UIViewController? {
+        guard let photoVC = viewController as? PhotoPageViewController,
+              photoVC.index < photos.count - 1 else { return nil }
+        
+        return createPhotoViewController(at: photoVC.index + 1)
+    }
+}
+
+// MARK: - UIPageViewControllerDelegate
+extension ImageViewerViewController: UIPageViewControllerDelegate {
+    func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
+        
+        guard completed,
+              let currentViewController = pageViewController.viewControllers?.first as? PhotoPageViewController else { return }
+        
+        currentIndex = currentViewController.index
+        updateUI()
+        
+        print("📱 [GALLERY] Swiped to photo \(currentIndex + 1)/\(photos.count)")
+    }
+}
+
+// MARK: - PhotoPageViewController
+class PhotoPageViewController: UIViewController {
+    private let imageView = UIImageView()
+    private let scrollView = UIScrollView()
+    var index: Int = 0
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupScrollView()
+        setupImageView()
+    }
+    
+    func configure(photo: GalleryPhotoItem, index: Int) {
+        self.index = index
+        loadImage(from: photo)
+    }
+    
+    private func setupScrollView() {
+        scrollView.delegate = self
+        scrollView.minimumZoomScale = 1.0
+        scrollView.maximumZoomScale = 3.0
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.showsHorizontalScrollIndicator = false
+        
+        view.addSubview(scrollView)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+    
+    private func setupImageView() {
+        imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = true
+        
+        scrollView.addSubview(imageView)
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            imageView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            imageView.heightAnchor.constraint(equalTo: scrollView.heightAnchor)
+        ])
+    }
+    
+    private func loadImage(from photo: GalleryPhotoItem) {
+        let imageUrl = photo.getFullUrl().isEmpty ? photo.getThumbnailUrl() : photo.getFullUrl()
+        
+        guard let url = URL(string: imageUrl) else {
+            print("❌ [IMAGE] Invalid URL: \(imageUrl)")
+            return
+        }
+        
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let data = data, let image = UIImage(data: data) else {
+                print("❌ [IMAGE] Failed to load image from: \(imageUrl)")
+                return
+            }
+            
+            DispatchQueue.main.async {
+                self?.imageView.image = image
+            }
+        }.resume()
+    }
+}
+
+// MARK: - UIScrollViewDelegate
+extension PhotoPageViewController: UIScrollViewDelegate {
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        return imageView
     }
 }
