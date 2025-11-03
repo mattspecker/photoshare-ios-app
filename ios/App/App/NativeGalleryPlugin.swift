@@ -378,8 +378,61 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             
+            // Try to detect current photo index via JavaScript
+            self.updateCurrentPhotoIndex()
+            
             // Update username label when swipe is detected
             self.updateUsernameLabel(presentedVC: presentedVC)
+        }
+    }
+    
+    private func updateCurrentPhotoIndex() {
+        // Use the same improved JavaScript logic to detect current index
+        let jsCode = """
+        (function() {
+            try {
+                // Strategy 1: Check PhotoViewer native implementation methods
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PhotoViewer) {
+                    const viewer = window.Capacitor.Plugins.PhotoViewer;
+                    if (viewer.getCurrentIndex && typeof viewer.getCurrentIndex === 'function') {
+                        const index = viewer.getCurrentIndex();
+                        if (typeof index === 'number' && index >= 0) {
+                            return index;
+                        }
+                    }
+                }
+                
+                // Strategy 2: Check for PhotoViewer DOM elements
+                const containers = ['.photoviewer-container', '.swiper-container', '.photoviewer-modal'];
+                for (const selector of containers) {
+                    const container = document.querySelector(selector);
+                    if (container) {
+                        const activeSlide = container.querySelector('.swiper-slide-active, .active');
+                        if (activeSlide) {
+                            const slideIndex = activeSlide.getAttribute('data-index') || 
+                                             activeSlide.getAttribute('data-slide-index');
+                            if (slideIndex && !isNaN(parseInt(slideIndex))) {
+                                return parseInt(slideIndex);
+                            }
+                        }
+                    }
+                }
+                
+                return \(self.currentDisplayIndex); // Fallback to current stored index
+            } catch (e) {
+                return \(self.currentDisplayIndex);
+            }
+        })();
+        """
+        
+        self.bridge?.webView?.evaluateJavaScript(jsCode) { result, error in
+            if let newIndex = result as? Int, 
+               newIndex != self.currentDisplayIndex && 
+               newIndex >= 0 && 
+               newIndex < self.currentPhotos.count {
+                self.currentDisplayIndex = newIndex
+                NSLog("📱 Swipe detected: Updated current photo index to \(newIndex)")
+            }
         }
     }
     
@@ -436,21 +489,88 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc private func downloadButtonTapped() {
         NSLog("📥 Download button tapped")
         
-        // Use JavaScript to get the current PhotoViewer index
+        // Use improved JavaScript to get the current PhotoViewer index
         let jsCode = """
         (function() {
             try {
-                // Try to get the current slide index from PhotoViewer
-                const photoViewer = document.querySelector('.photoviewer-container, .swiper-container, [data-index]');
-                if (photoViewer) {
-                    const currentIndex = photoViewer.getAttribute('data-current-index') || 
-                                       photoViewer.querySelector('.swiper-slide-active')?.getAttribute('data-index') ||
-                                       '0';
-                    return parseInt(currentIndex);
+                console.log('🔍 Attempting to get PhotoViewer current index...');
+                
+                // Strategy 1: Check PhotoViewer native implementation methods
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PhotoViewer) {
+                    const viewer = window.Capacitor.Plugins.PhotoViewer;
+                    if (viewer.getCurrentIndex && typeof viewer.getCurrentIndex === 'function') {
+                        const index = viewer.getCurrentIndex();
+                        console.log('📍 PhotoViewer getCurrentIndex returned:', index);
+                        if (typeof index === 'number' && index >= 0) {
+                            return index;
+                        }
+                    }
                 }
-                return \(self.currentDisplayIndex);  // Fallback to stored index
+                
+                // Strategy 2: Check for PhotoViewer DOM elements
+                const containers = [
+                    '.photoviewer-container',
+                    '.swiper-container', 
+                    '.photoviewer-modal',
+                    '[data-photoviewer]'
+                ];
+                
+                for (const selector of containers) {
+                    const container = document.querySelector(selector);
+                    if (container) {
+                        console.log('📍 Found PhotoViewer container:', selector);
+                        
+                        // Check various index attributes
+                        const indexSources = [
+                            container.getAttribute('data-current-index'),
+                            container.getAttribute('data-index'),
+                            container.getAttribute('data-slide-index')
+                        ];
+                        
+                        for (const indexStr of indexSources) {
+                            if (indexStr && !isNaN(parseInt(indexStr))) {
+                                const index = parseInt(indexStr);
+                                console.log('📍 Found index from container attribute:', index);
+                                return index;
+                            }
+                        }
+                        
+                        // Check for active slide
+                        const activeSlide = container.querySelector('.swiper-slide-active, .active, [data-active="true"]');
+                        if (activeSlide) {
+                            const slideIndex = activeSlide.getAttribute('data-index') || 
+                                             activeSlide.getAttribute('data-slide-index');
+                            if (slideIndex && !isNaN(parseInt(slideIndex))) {
+                                const index = parseInt(slideIndex);
+                                console.log('📍 Found index from active slide:', index);
+                                return index;
+                            }
+                        }
+                    }
+                }
+                
+                // Strategy 3: Look for image elements with src matching our photo URLs
+                const images = document.querySelectorAll('img[src*="supabase"], img[src*="photoshare"]');
+                if (images.length > 0) {
+                    console.log('📍 Found', images.length, 'PhotoShare images, analyzing...');
+                    // Try to match visible image with our photo list
+                    for (let i = 0; i < images.length; i++) {
+                        const img = images[i];
+                        if (img.offsetWidth > 0 && img.offsetHeight > 0) {
+                            // This image is visible, try to match it with our photos
+                            const imgSrc = img.src;
+                            console.log('📍 Visible image src:', imgSrc);
+                            // Return the middle index as a reasonable guess if we have multiple images
+                            return Math.floor(images.length / 2);
+                        }
+                    }
+                }
+                
+                console.log('⚠️ All PhotoViewer index detection strategies failed, using fallback');
+                return \(self.currentDisplayIndex);
+                
             } catch (e) {
-                console.log('Could not get PhotoViewer index, using fallback');
+                console.error('❌ Error getting PhotoViewer index:', e);
                 return \(self.currentDisplayIndex);
             }
         })();
@@ -458,33 +578,41 @@ public class NativeGalleryPlugin: CAPPlugin, CAPBridgedPlugin {
         
         self.bridge?.webView?.evaluateJavaScript(jsCode) { result, error in
             DispatchQueue.main.async {
-                let photoIndex = (result as? Int) ?? self.currentDisplayIndex
-                NSLog("📥 Using photo index: \(photoIndex)")
+                let detectedIndex = (result as? Int) ?? self.currentDisplayIndex
                 
-                // Get current photo based on actual index
-                guard photoIndex >= 0 && photoIndex < self.currentPhotos.count else {
-                    NSLog("❌ Invalid photo index: \(photoIndex)")
-                    self.showToast(message: "Error: Invalid photo index")
+                // Additional safety check: ensure we have a reasonable index
+                let finalIndex = max(0, min(detectedIndex, self.currentPhotos.count - 1))
+                
+                NSLog("📥 Detected index: \(detectedIndex), Using final index: \(finalIndex) (total photos: \(self.currentPhotos.count))")
+                
+                // Update our stored display index to the detected one
+                self.currentDisplayIndex = finalIndex
+                
+                // Get current photo based on final index
+                guard finalIndex >= 0 && finalIndex < self.currentPhotos.count else {
+                    NSLog("❌ Invalid photo index: \(finalIndex)")
+                    self.showToast(message: "❌ Error: Invalid photo index")
                     return
                 }
                 
-                let photo = self.currentPhotos[photoIndex]
+                let photo = self.currentPhotos[finalIndex]
                 let fullUrl = photo["fullUrl"] ?? ""
+                let photoId = photo["id"] ?? "unknown"
                 
-                NSLog("📥 Downloading full resolution image: \(fullUrl)")
+                NSLog("📥 Downloading photo ID \(photoId) at index \(finalIndex): \(fullUrl)")
                 
                 // Create a temporary CAPPluginCall for the download method
                 let call = CAPPluginCall(callbackId: "download-\(UUID().uuidString)", 
                                          options: ["url": fullUrl],
                                          success: { _, _ in
                                              DispatchQueue.main.async {
-                                                 NSLog("✅ Download completed successfully")
+                                                 NSLog("✅ Download completed successfully for photo \(photoId)")
                                                  self.showToast(message: "✅ Photo saved to gallery!")
                                              }
                                          },
                                          error: { _ in
                                              DispatchQueue.main.async {
-                                                 NSLog("❌ Download failed")
+                                                 NSLog("❌ Download failed for photo \(photoId)")
                                                  self.showToast(message: "❌ Download failed")
                                              }
                                          })
