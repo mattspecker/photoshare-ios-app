@@ -19,7 +19,6 @@
     },
     "StatusBar": {
       "style": "DEFAULT",
-      "backgroundColor": "#ffffff",
       "overlaysWebView": false
     },
     "FirebaseMessaging": {
@@ -68,7 +67,6 @@
   "ios": {
     "scheme": "App",
     "contentInset": "automatic",
-    "backgroundColor": "#ffffff",
     "handleApplicationNotifications": false
   },
   "packageClassList": [

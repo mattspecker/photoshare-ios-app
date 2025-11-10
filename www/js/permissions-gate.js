@@ -142,6 +142,29 @@ console.log('🚪 Permission Gate Bootstrap loading...');
     }
 
     /**
+     * Get max wait attempts based on iOS version
+     * iOS 17.x.x needs more time for plugin initialization
+     */
+    function getMaxWaitAttempts() {
+        try {
+            const platform = window.Capacitor?.getPlatform?.();
+            if (platform === 'ios') {
+                // Try to get iOS version from Device plugin if available
+                const isIOS17 = /OS 17\.|Version\/17\./i.test(navigator.userAgent);
+                if (isIOS17) {
+                    console.log('🍎 iOS 17.x.x detected - using extended timeout (15 seconds)');
+                    return 300; // 300 * 50ms = 15 seconds
+                }
+            }
+        } catch (error) {
+            console.warn('⚠️ Could not detect iOS version:', error);
+        }
+        
+        // Default: 5 seconds for other platforms/versions
+        return 100; // 100 * 50ms = 5 seconds
+    }
+
+    /**
      * Wait for Capacitor to be ready
      */
     function waitForCapacitor() {
@@ -152,13 +175,16 @@ console.log('🚪 Permission Gate Bootstrap loading...');
             }
 
             let attempts = 0;
+            // iOS 17.x.x needs more time for plugin initialization
+            const maxAttempts = getMaxWaitAttempts();
             const checkInterval = setInterval(() => {
                 attempts++;
                 if (window.Capacitor?.Plugins) {
                     clearInterval(checkInterval);
                     resolve();
-                } else if (attempts > 100) { // 5 seconds max
+                } else if (attempts > maxAttempts) {
                     clearInterval(checkInterval);
+                    console.warn(`⚠️ Capacitor plugins timeout after ${maxAttempts * 50}ms`);
                     resolve();
                 }
             }, 50);

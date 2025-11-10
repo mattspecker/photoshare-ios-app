@@ -88,7 +88,8 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         case .authorized:
             NSLog("✅ Photo library access already granted")
         case .notDetermined:
-            NSLog("⚠️ Photo library access not determined - auto-upload will request permission when scanning")
+            NSLog("❌ Photo library access not determined - skipping auto-upload until permission granted")
+            return
         case .denied, .restricted:
             NSLog("❌ Photo library access denied/restricted - skipping auto-upload")
             return
@@ -145,25 +146,27 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         uploadProgress["scanningMode"] = true
         saveUploadProgress()
         
-        // Step 1: Show "Getting Events" overlay first
+        // CRITICAL FIX: Check for events BEFORE showing overlay (consistent with startAutoUploadFlow fix)
+        NSLog("🎯 AUTO-RESUME: Checking for events (silent)...")
+        let events = await fetchUserEventsFromAPI(supabaseToken: supabaseToken, userId: userId)
+        
+        NSLog("📊 AUTO-RESUME: Found \(events.count) events to process")
+        
+        // If no events, exit silently (preventing overlay flash)
+        if events.isEmpty {
+            NSLog("❌ AUTO-RESUME: No events found - exiting silently (no overlay shown)")
+            return
+        }
+        
+        NSLog("✅ AUTO-RESUME: Found events - proceeding with overlay")
+        
+        // Step 1: NOW show "Getting Events" overlay since we confirmed events exist
         NSLog("🎯 AUTO-RESUME: Showing Getting Events overlay...")
         await showGettingEventsOverlay()
         
         // Step 2: Small delay to let "Getting Events" be visible
         NSLog("🎯 AUTO-RESUME: Letting Getting Events display...")
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay to show getting events
-        
-        // Step 3: Get all user events while overlay is showing
-        NSLog("🎯 AUTO-RESUME: Calling getUserEvents...")
-        let events = await fetchUserEventsFromAPI(supabaseToken: supabaseToken, userId: userId)
-        
-        NSLog("📊 AUTO-RESUME: Found \(events.count) events to process")
-        
-        // If no events, exit early
-        if events.isEmpty {
-            NSLog("📊 No events found for auto-upload scanning")
-            return
-        }
         
         // Log event details for debugging
         for (index, event) in events.enumerated() {
@@ -173,11 +176,11 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             }
         }
         
-        // Step 4: Transition from "Getting Events" to "Scanning" 
+        // Step 3: Transition from "Getting Events" to "Scanning" 
         NSLog("🔄 Transitioning to scanning overlay for all events...")
         await showScanningOverlayForAllEvents()
         
-        // Step 5: Process each event sequentially
+        // Step 4: Process each event sequentially
         for (index, event) in events.enumerated() {
             guard let eventName = event["name"] as? String,
                   let eventId = event["event_id"] as? String else {
@@ -1302,6 +1305,25 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         NSLog("📸 scanForPhotos called")
         NSLog("📦 Call parameters: \(call.options)")
         
+        // CRITICAL FIX: Check photo library permission BEFORE scanning
+        let photoPermissionStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        switch photoPermissionStatus {
+        case .authorized, .limited:
+            NSLog("✅ scanForPhotos: Photo library permission verified")
+        case .notDetermined:
+            NSLog("❌ scanForPhotos: Photo library permission not determined - cannot scan")
+            call.reject("Photo library permission not granted", "PHOTO_PERMISSION_DENIED", nil)
+            return
+        case .denied, .restricted:
+            NSLog("❌ scanForPhotos: Photo library permission denied/restricted - cannot scan")
+            call.reject("Photo library permission denied", "PHOTO_PERMISSION_DENIED", nil)
+            return
+        @unknown default:
+            NSLog("❌ scanForPhotos: Unknown photo library permission status - cannot scan")
+            call.reject("Photo library permission unknown", "PHOTO_PERMISSION_DENIED", nil)
+            return
+        }
+        
         Task {
             do {
                 guard let eventId = call.getString("eventId") else {
@@ -1396,6 +1418,25 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func showScanningOverlay(_ call: CAPPluginCall) {
         NSLog("🔄 showScanningOverlay called")
         NSLog("📦 Call parameters: \(call.options)")
+        
+        // CRITICAL FIX: Check photo library permission BEFORE showing scanning overlay
+        let photoPermissionStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        switch photoPermissionStatus {
+        case .authorized, .limited:
+            NSLog("✅ showScanningOverlay: Photo library permission verified")
+        case .notDetermined:
+            NSLog("❌ showScanningOverlay: Photo library permission not determined - cannot show scanning overlay")
+            call.reject("Photo library permission not granted", "PHOTO_PERMISSION_DENIED", nil)
+            return
+        case .denied, .restricted:
+            NSLog("❌ showScanningOverlay: Photo library permission denied/restricted - cannot show scanning overlay")
+            call.reject("Photo library permission denied", "PHOTO_PERMISSION_DENIED", nil)
+            return
+        @unknown default:
+            NSLog("❌ showScanningOverlay: Unknown photo library permission status - cannot show scanning overlay")
+            call.reject("Photo library permission unknown", "PHOTO_PERMISSION_DENIED", nil)
+            return
+        }
         
         // Use the existing UploadStatusOverlay plugin for consistency with EventPhotoPicker
         let message = call.getString("message") ?? "Scanning for uploads"
@@ -2593,7 +2634,8 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
         // Generate clean filename without slashes (like EventPhotoPicker)
         let timestamp = Date().timeIntervalSince1970
         let cleanIdentifier = localIdentifier.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "-", with: "_")
-        let filename = photo["filename"] as? String ?? "photo_\(timestamp)_\(cleanIdentifier.suffix(8)).jpg"
+        let rawFilename = photo["filename"] as? String ?? "photo_\(timestamp)_\(cleanIdentifier.suffix(8)).jpg"
+        let filename = sanitizeFileName(rawFilename)
         NSLog("📤 Uploading photo \(index)/\(total): \(filename)")
         
         // Get PHAsset for the photo
@@ -3179,17 +3221,8 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 
                 NSLog("🔐 Starting auto-upload flow with JWT token: \(token.prefix(20))...")
                 
-                // Hide any existing overlay first, then show "Getting Events" overlay
-                NSLog("🔧 Step 1: Hiding any existing overlay...")
-                await hideOverlay()
-                
-                NSLog("🔧 Step 2: Showing Getting Events overlay...")
-                await showGettingEventsOverlay()
-                
-                NSLog("🔧 Step 3: Brief delay for Getting Events to be visible...")
-                // Brief delay for UI responsiveness
-                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 second delay
-                NSLog("🔧 Step 4: Getting Events delay completed")
+                // CRITICAL FIX: Check for events BEFORE showing overlay (following web team guidance)
+                NSLog("🔧 Step 1: Checking for auto-upload events (silent check)...")
                 
                 // Get Supabase session data (like triggerAutoSupabaseTokenCheck does)
                 NSLog("🔍 Getting Supabase session data for user events...")
@@ -3205,30 +3238,43 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
                 NSLog("👤 User ID: \(userIdValue)")
                 NSLog("🔐 Supabase token preview: \(String(tokenValue.prefix(20)))...")
                 
-                // Step 1: Get user events using Supabase token
-                NSLog("📋 Getting user events...")
+                // Step 2: Get user events using Supabase token (SILENT - NO OVERLAY YET)
+                NSLog("📋 Checking for user events (silent API call)...")
                 let userEvents = await fetchUserEventsFromAPI(supabaseToken: tokenValue, userId: userIdValue)
                 
+                // Step 3: Exit silently if no events (preventing overlay flash)
                 if userEvents.isEmpty {
-                    NSLog("ℹ️ No events found for user")
-                    // Hide overlay since no events to process
-                    await hideOverlay()
+                    NSLog("❌ No auto-upload events found - exiting silently (no overlay shown)")
                     call.resolve([
                         "success": true,
-                        "message": "No events found",
+                        "message": "No events with auto-upload enabled",
                         "eventsProcessed": 0,
                         "photosUploaded": 0
                     ])
                     return
                 }
                 
-                NSLog("📊 Found \(userEvents.count) events to process")
+                NSLog("✅ Found \(userEvents.count) auto-upload events - proceeding with overlay")
                 
-                // Step 2: Transition to scanning mode now that we have events
-                NSLog("🔧 Step 5: Transitioning from Getting Events to Scanning mode...")
-                await updateScanningOverlayMessage(eventName: "events", current: 1, total: userEvents.count)
+                // Step 4: NOW show overlay since we confirmed events exist
+                NSLog("🔧 Step 4: Hiding any existing overlay...")
+                await hideOverlay()
                 
-                // Step 3: Process each event sequentially with overlay updates
+                NSLog("🔧 Step 5: Showing Getting Events overlay...")
+                await showGettingEventsOverlay()
+                
+                NSLog("🔧 Step 6: Brief delay for Getting Events to be visible...")
+                // Brief delay for UI responsiveness
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 second delay
+                NSLog("🔧 Step 7: Getting Events overlay displayed")
+                
+                NSLog("📊 Processing \(userEvents.count) events with overlay")
+                
+                // Step 8: Transition to scanning mode now that we have events
+                NSLog("🔧 Step 8: Transitioning from Getting Events to Scanning mode...")
+                await showScanningOverlayForAllEvents()
+                
+                // Step 9: Process each event sequentially with overlay updates
                 var totalPhotosUploaded = 0
                 
                 for (index, event) in userEvents.enumerated() {
@@ -3520,5 +3566,26 @@ public class AutoUploadPlugin: CAPPlugin, CAPBridgedPlugin {
             
             monitor.start(queue: queue)
         }
+    }
+    
+    /// Sanitize filename for server upload by removing invalid characters
+    /// @param filename Original filename
+    /// @return Sanitized filename safe for upload
+    private func sanitizeFileName(_ filename: String) -> String {
+        guard !filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "photo.jpg"
+        }
+        
+        // Remove parentheses and other problematic characters
+        // Keep only alphanumeric, dots, dashes, and underscores
+        let sanitized = filename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
+            .replacingOccurrences(of: "_+", with: "_", options: .regularExpression)
+            .replacingOccurrences(of: "^_+|_+$", with: "", options: .regularExpression)
+        
+        // Ensure it's not empty and has a file extension
+        let finalName = sanitized.isEmpty || !sanitized.contains(".") ? "photo.jpg" : sanitized
+        
+        NSLog("🔤 Filename sanitized: '\(filename)' -> '\(finalName)'")
+        return finalName
     }
 }

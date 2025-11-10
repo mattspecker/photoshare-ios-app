@@ -8,6 +8,42 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>PhotoShare</title>
     <meta name="description" content="Lovable Generated Project" />
+    
+    <!-- Critical CSS for immediate theme application to prevent black background -->
+    <style>
+      :root {
+        --background: 0 0% 100%;
+        --foreground: 222.2 84% 4.9%;
+      }
+      
+      .dark {
+        --background: 222.2 84% 4.9%;
+        --foreground: 210 40% 98%;
+      }
+      
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: hsl(var(--background)) !important;
+        color: hsl(var(--foreground)) !important;
+        transition: background-color 0.3s ease, color 0.3s ease;
+        min-height: 100vh;
+      }
+      
+      /* iOS status bar safe area handling for overlaysWebView: false */
+      body {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+      }
+      
+      /* Prevent any black backgrounds during initial load */
+      #root, #initial-loader, .initial-loading-screen {
+        background-color: inherit !important;
+        color: inherit !important;
+      }
+    </style>
     <meta name="author" content="Lovable" />
     <link rel="icon" href="/lovable-uploads/appicon1024x1024.png" type="image/png">
 
@@ -63,6 +99,65 @@
     <script src="/js/native-plugin-auth-helper.js"></script>
     <script src="/js/web-app-ready-signal.js"></script>
     
+    <!-- Theme initialization for status bar background -->
+    <script>
+      // Initialize theme immediately to prevent black status bar background
+      (function() {
+        // Check for saved theme preference or system preference
+        const savedTheme = localStorage.getItem('theme');
+        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        const theme = savedTheme || systemTheme;
+        
+        // Apply theme to HTML element immediately
+        if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
+          // Set CSS custom properties for dark mode
+          document.documentElement.style.setProperty('--background', '222.2 84% 4.9%');
+          document.documentElement.style.setProperty('--foreground', '210 40% 98%');
+        } else {
+          document.documentElement.classList.remove('dark');
+          // Set CSS custom properties for light mode  
+          document.documentElement.style.setProperty('--background', '0 0% 100%');
+          document.documentElement.style.setProperty('--foreground', '222.2 84% 4.9%');
+        }
+        
+        // Apply background to body immediately
+        document.body.style.backgroundColor = theme === 'dark' ? 'hsl(222.2 84% 4.9%)' : 'hsl(0 0% 100%)';
+        document.body.style.color = theme === 'dark' ? 'hsl(210 40% 98%)' : 'hsl(222.2 84% 4.9%)';
+        
+        // Function to apply theme
+        const applyTheme = (isDark) => {
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.setProperty('--background', '222.2 84% 4.9%');
+            document.documentElement.style.setProperty('--foreground', '210 40% 98%');
+            document.body.style.backgroundColor = 'hsl(222.2 84% 4.9%)';
+            document.body.style.color = 'hsl(210 40% 98%)';
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.style.setProperty('--background', '0 0% 100%');
+            document.documentElement.style.setProperty('--foreground', '222.2 84% 4.9%');
+            document.body.style.backgroundColor = 'hsl(0 0% 100%)';
+            document.body.style.color = 'hsl(222.2 84% 4.9%)';
+          }
+        };
+        
+        // Listen for theme changes
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+          if (!localStorage.getItem('theme')) {
+            applyTheme(e.matches);
+          }
+        });
+        
+        // Listen for storage changes (when theme is changed in web app)
+        window.addEventListener('storage', (e) => {
+          if (e.key === 'theme') {
+            applyTheme(e.newValue === 'dark');
+          }
+        });
+      })();
+    </script>
+    
     <!-- Google Fonts for Photo Editor and Theme Variations -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -71,7 +166,27 @@
     <link rel="stylesheet" crossorigin href="/assets/index-CtwFNlw1.css">
   </head>
 
-  <body>
+  <body style="margin: 0; background-color: white; color: #1a1a1a; transition: background-color 0.3s ease, color 0.3s ease;">
+    <!-- Immediate theme application script - runs before any content loads -->
+    <script>
+      (function() {
+        // Apply theme immediately - this is critical for status bar background
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const savedTheme = localStorage.getItem('theme');
+        const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+        
+        console.log('Theme initialization:', { savedTheme, prefersDark, theme });
+        
+        if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
+          console.log('Applied dark theme');
+        } else {
+          document.documentElement.classList.remove('dark');
+          console.log('Applied light theme');
+        }
+      })();
+    </script>
+
     <!-- Initial loading screen - shows before React loads -->
     <div id="initial-loader" class="initial-loading-screen">
       <div class="loading-content">

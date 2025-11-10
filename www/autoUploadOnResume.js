@@ -13,11 +13,103 @@ async function triggerAutoUploadFlow() {
         return;
     }
     
+    // CRITICAL FIX: Check permission gate before triggering auto-upload
+    try {
+        console.log('🚪 AUTO-TRIGGER: Checking permission gate before auto-upload...');
+        
+        // Wait for permission gate to complete its initial check
+        const gate = await window.waitForPermissionGate(3000);
+        
+        if (gate.blocked) {
+            console.log('🚫 AUTO-TRIGGER: Permission gate BLOCKED - auto-upload skipped');
+            console.log('🚫 Reason:', gate.reason);
+            console.log('🚫 Permissions:', gate.permissions);
+            return; // Exit early - don't trigger auto-upload
+        }
+        
+        console.log('✅ AUTO-TRIGGER: Permission gate CLEARED - proceeding with auto-upload');
+        console.log('✅ Permissions:', gate.permissions);
+        
+    } catch (error) {
+        console.warn('⚠️ AUTO-TRIGGER: Permission gate check failed, proceeding anyway:', error);
+        // Continue with auto-upload on error to avoid blocking
+    }
+    
     autoUploadInProgress = true;
     
     try {
         console.log('🔧 ⏱️ AUTO-TRIGGER: Starting auto-upload flow...');
         console.log('🔧 ⏱️ Timestamp:', new Date().toISOString());
+        
+        // CRITICAL FIX: Check if user has events and auto-upload enabled BEFORE showing overlay
+        console.log('🔍 PRE-CHECK: Verifying user has events with auto-upload enabled...');
+        
+        // Check if auto-upload is globally enabled (check multiple possible keys)
+        let globalAutoUploadEnabled = false;
+        
+        // Check the key from React app settings
+        const settingsString = localStorage.getItem('auto-upload-settings');
+        if (settingsString) {
+            try {
+                const settings = JSON.parse(settingsString);
+                globalAutoUploadEnabled = settings.autoUploadEnabled === true;
+                console.log('🔍 Auto-upload enabled from settings:', globalAutoUploadEnabled);
+            } catch (e) {
+                console.warn('Failed to parse auto-upload-settings:', e);
+            }
+        }
+        
+        // Fallback to other keys if settings not found
+        if (!globalAutoUploadEnabled) {
+            globalAutoUploadEnabled = localStorage.getItem('globalAutoUploadEnabled') === 'true';
+            console.log('🔍 Fallback global auto-upload check:', globalAutoUploadEnabled);
+        }
+        
+        console.log('🔍 Final auto-upload enabled status:', globalAutoUploadEnabled);
+        
+        if (!globalAutoUploadEnabled) {
+            console.log('❌ PRE-CHECK: Auto-upload disabled - skipping');
+            autoUploadInProgress = false;
+            return;
+        }
+        
+        // Check if user has any events (using websiteIntegration if available)
+        let hasEvents = false;
+        try {
+            if (window.WebsiteIntegration) {
+                console.log('🔍 PRE-CHECK: Using WebsiteIntegration to check for active events...');
+                const activeEvents = await window.WebsiteIntegration.getActiveAutoUploadEvents();
+                hasEvents = activeEvents && activeEvents.length > 0;
+                console.log('🔍 PRE-CHECK: Found', activeEvents?.length || 0, 'active auto-upload events');
+            } else {
+                console.log('🔍 PRE-CHECK: WebsiteIntegration not available, checking via Supabase...');
+                // Fallback: Check via direct Supabase query
+                if (window.supabase?.auth) {
+                    const session = await window.supabase.auth.getSession();
+                    if (session?.data?.session?.user) {
+                        const { data: events } = await window.supabase
+                            .from('event_participants')
+                            .select('events!inner(*)')
+                            .eq('user_id', session.data.session.user.id)
+                            .eq('events.is_live', true)
+                            .eq('auto_upload_enabled', true);
+                        hasEvents = events && events.length > 0;
+                        console.log('🔍 PRE-CHECK: Found', events?.length || 0, 'events with auto-upload enabled');
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('⚠️ PRE-CHECK: Failed to check events, proceeding anyway:', error);
+            hasEvents = true; // Be permissive on error to avoid blocking legitimate users
+        }
+        
+        if (!hasEvents) {
+            console.log('❌ PRE-CHECK: No events with auto-upload enabled - skipping overlay');
+            autoUploadInProgress = false;
+            return;
+        }
+        
+        console.log('✅ PRE-CHECK: User has events with auto-upload enabled - proceeding');
         
         // Step 1: Get Supabase token (iOS-compatible approach)
         console.log('🔐 Getting Supabase session token...');

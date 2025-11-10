@@ -77,11 +77,7 @@
 		<string>Fonts/Outfit-Bold.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>
-	<array>
-		<string>background-app-refresh</string>
-		<string>background-processing</string>
-		<string>background-fetch</string>
-	</array>
+	<array/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

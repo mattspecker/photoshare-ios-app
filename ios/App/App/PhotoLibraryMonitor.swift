@@ -53,6 +53,16 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
+        // CRITICAL FIX: Check photo library permission BEFORE enabling auto-upload
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            print("❌ enableAutoUpload: Photo library permission not granted (status: \(status))")
+            call.reject("Photo library permission not granted", "PHOTO_PERMISSION_DENIED", nil)
+            return
+        }
+        
+        print("✅ enableAutoUpload: Photo library permission verified (status: \(status))")
+        
         autoUploadEnabled = true
         currentEventId = eventId
         
@@ -349,6 +359,13 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
     private func beginMonitoring() {
         guard !isMonitoring else { return }
         
+        // ADDITIONAL SAFETY: Verify permission before starting monitoring
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            print("❌ beginMonitoring: Cannot start monitoring - photo permission not granted (status: \(status))")
+            return
+        }
+        
         isMonitoring = true
         lastPhotoDate = Date()
         
@@ -365,6 +382,13 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
     
     private func checkForNewPhotos() {
         guard isMonitoring, let lastDate = lastPhotoDate else { return }
+        
+        // CRITICAL FIX: Verify permission before accessing photo library
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            print("❌ checkForNewPhotos: Cannot access photos - permission not granted (status: \(status))")
+            return
+        }
         
         print("🔍 Checking for new photos since: \(lastDate)")
         
@@ -488,7 +512,7 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
     }
     
     @objc func getMonitoringStatus(_ call: CAPPluginCall) {
-        let authStatus = PHPhotoLibrary.authorizationStatus()
+        let authStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         
         let statusString: String
         switch authStatus {
@@ -500,9 +524,13 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
         @unknown default: statusString = "unknown"
         }
         
+        // ENHANCEMENT: Add hasPhotoLibraryAccess for web-side verification
+        let hasPermission = authStatus == .authorized || authStatus == .limited
+        
         call.resolve([
             "isMonitoring": isMonitoring,
             "authorizationStatus": statusString,
+            "hasPhotoLibraryAccess": hasPermission,
             "lastPhotoDate": lastPhotoDate?.timeIntervalSince1970 ?? 0,
             "autoUploadEnabled": autoUploadEnabled,
             "userAutoUploadEnabled": userAutoUploadEnabled,
