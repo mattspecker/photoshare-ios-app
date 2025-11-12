@@ -239,6 +239,13 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
     @objc func startMonitoring(_ call: CAPPluginCall) {
         print("🚀 Starting photo library monitoring...")
         
+        // Check if auto-upload is enabled first
+        guard userAutoUploadEnabled else {
+            print("⏸️ Auto-upload disabled - not starting monitoring")
+            call.resolve(["success": false, "message": "Auto-upload disabled"])
+            return
+        }
+        
         // Check photo library permissions
         let status = PHPhotoLibrary.authorizationStatus()
         
@@ -359,6 +366,12 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
     private func beginMonitoring() {
         guard !isMonitoring else { return }
         
+        // ADDITIONAL SAFETY: Verify auto-upload is enabled before monitoring
+        guard userAutoUploadEnabled else {
+            print("❌ beginMonitoring: Cannot start monitoring - auto-upload disabled")
+            return
+        }
+        
         // ADDITIONAL SAFETY: Verify permission before starting monitoring
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard status == .authorized || status == .limited else {
@@ -418,7 +431,13 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
                 newPhotos.append(photoInfo)
             }
             
-            // Send notification to JavaScript
+            // Check if auto-upload is enabled BEFORE emitting any events
+            guard userAutoUploadEnabled else {
+                print("⏸️ Auto-upload disabled - not processing or notifying about new photos")
+                return
+            }
+            
+            // Send notification to JavaScript only if auto-upload is enabled
             self.notifyListeners("newPhotosDetected", data: ["photos": newPhotos])
             
             // If auto-upload is enabled, process for upload
@@ -783,12 +802,15 @@ public class PhotoLibraryMonitor: CAPPlugin, CAPBridgedPlugin {
     
     private func emitBridgeReadyEvent() {
         print("🌉 Emitting native:bridgeReady event to web side")
+        print("🔍 Auto-upload enabled: \(userAutoUploadEnabled)")
         
-        // Emit a custom event to notify web that the bridge is ready
+        // Always emit the ready event so web can get settings
+        // but include the auto-upload status for web to decide what to do
         self.notifyListeners("native:bridgeReady", data: [
             "plugin": "PhotoLibraryMonitor",
             "ready": true,
             "timestamp": Date().timeIntervalSince1970,
+            "autoUploadEnabled": userAutoUploadEnabled, // Clear flag for web
             "settings": [
                 "userAutoUploadEnabled": userAutoUploadEnabled,
                 "wifiOnlyUpload": wifiOnlyUpload,

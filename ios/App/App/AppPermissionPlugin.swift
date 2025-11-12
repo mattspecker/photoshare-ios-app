@@ -17,6 +17,7 @@ public class AppPermissions: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "requestNotificationPermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestCameraPermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestPhotoPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestFullPhotoAccess", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hasCompletedOnboarding", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "markOnboardingComplete", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "isFirstLaunch", returnType: CAPPluginReturnPromise)
@@ -81,14 +82,22 @@ public class AppPermissions: CAPPlugin, CAPBridgedPlugin {
     }
     
     @objc func checkPhotoPermission(_ call: CAPPluginCall) {
+        print("🚨🚨🚨 PERMISSION CHECK CALLED - DEBUG MARKER 🚨🚨🚨")
         print("🖼️ AppPermissions: Checking photo permission status...")
         
         let status: String
         if #available(iOS 14, *) {
-            switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
-            case .authorized, .limited:
+            let rawStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            print("🖼️ AppPermissions: Raw iOS 14+ status: \(rawStatus)")
+            
+            switch rawStatus {
+            case .authorized:
                 status = "granted"
-            case .denied, .restricted:
+            case .limited:
+                status = "limited"  // NEW: Separate limited access status
+            case .denied:
+                status = "denied"
+            case .restricted:
                 status = "denied"
             case .notDetermined:
                 status = "prompt"
@@ -96,10 +105,16 @@ public class AppPermissions: CAPPlugin, CAPBridgedPlugin {
                 status = "prompt"
             }
         } else {
-            switch PHPhotoLibrary.authorizationStatus() {
+            // iOS 13 and below - no limited access
+            let rawStatus = PHPhotoLibrary.authorizationStatus()
+            print("🖼️ AppPermissions: Raw iOS 13 status: \(rawStatus)")
+            
+            switch rawStatus {
             case .authorized:
                 status = "granted"
-            case .denied, .restricted:
+            case .denied:
+                status = "denied"
+            case .restricted:
                 status = "denied"
             case .notDetermined:
                 status = "prompt"
@@ -109,6 +124,7 @@ public class AppPermissions: CAPPlugin, CAPBridgedPlugin {
         }
         
         print("🖼️ AppPermissions: Photo permission status: \(status)")
+        print("🔎 WEB TEAM DEBUG: checkPhotoPermission returning status='\(status)' for onboarding decision")
         call.resolve(["status": status])
     }
     
@@ -291,6 +307,7 @@ public class AppPermissions: CAPPlugin, CAPBridgedPlugin {
                 PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
                     DispatchQueue.main.async {
                         let granted = (newStatus == .authorized || newStatus == .limited)
+                        print("🖼️ AppPermissions: Photo permission request completed with status: \(newStatus)")
                         print("🖼️ AppPermissions: Photo permission result: \(granted)")
                         
                         call.resolve([
@@ -343,6 +360,123 @@ public class AppPermissions: CAPPlugin, CAPBridgedPlugin {
                 call.resolve([
                     "granted": false,
                     "error": "Photo library access denied or restricted"
+                ])
+            }
+        }
+    }
+    
+    // MARK: - Full Photo Access Request (iOS 14+)
+    
+    @objc func requestFullPhotoAccess(_ call: CAPPluginCall) {
+        print("🖼️ AppPermissions: Requesting upgrade from limited to full photo access...")
+        
+        if #available(iOS 14, *) {
+            let currentStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            
+            switch currentStatus {
+            case .authorized:
+                print("✅ AppPermissions: Already have full photo access")
+                call.resolve([
+                    "granted": true,
+                    "status": "granted",
+                    "message": "Already have full access"
+                ])
+                
+            case .limited:
+                print("🔄 AppPermissions: Limited access detected - opening Settings...")
+                
+                // Open iOS Settings directly to PhotoShare app settings
+                if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                    print("📱 AppPermissions: Opening iOS Settings for PhotoShare app...")
+                    
+                    DispatchQueue.main.async {
+                        UIApplication.shared.open(settingsUrl) { success in
+                            if success {
+                                print("✅ AppPermissions: Successfully opened Settings")
+                                call.resolve([
+                                    "granted": false,
+                                    "status": "limited",
+                                    "message": "Settings opened. Please select 'Full Access' and return to the app.",
+                                    "settingsOpened": true
+                                ])
+                            } else {
+                                print("❌ AppPermissions: Failed to open Settings")
+                                call.resolve([
+                                    "granted": false,
+                                    "status": "limited",
+                                    "message": "Unable to open Settings. Please go to Settings > Privacy & Security > Photos > PhotoShare and select 'Full Access'.",
+                                    "settingsOpened": false
+                                ])
+                            }
+                        }
+                    }
+                } else {
+                    print("❌ AppPermissions: Unable to create Settings URL")
+                    call.resolve([
+                        "granted": false,
+                        "status": "limited",
+                        "message": "Unable to open Settings. Please go to Settings > Privacy & Security > Photos > PhotoShare and select 'Full Access'.",
+                        "settingsOpened": false
+                    ])
+                }
+                
+            case .denied:
+                print("❌ AppPermissions: Photo access denied - cannot upgrade")
+                call.resolve([
+                    "granted": false,
+                    "status": "denied",
+                    "message": "Photo access denied. Please enable in Settings."
+                ])
+                
+            case .restricted:
+                print("❌ AppPermissions: Photo access denied or restricted - cannot upgrade")
+                call.resolve([
+                    "granted": false,
+                    "status": "denied",
+                    "message": "Photo access denied. Please enable in Settings."
+                ])
+                
+            case .notDetermined:
+                print("🔄 AppPermissions: Permission not determined - requesting initial access...")
+                PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
+                    DispatchQueue.main.async {
+                        let granted = (newStatus == .authorized)
+                        let statusString = granted ? "granted" : (newStatus == .limited ? "limited" : "denied")
+                        
+                        print("🖼️ AppPermissions: Initial photo permission result: \(statusString)")
+                        
+                        call.resolve([
+                            "granted": granted,
+                            "status": statusString,
+                            "message": granted ? "Full access granted" : "Permission request completed"
+                        ])
+                    }
+                }
+                
+            @unknown default:
+                print("❌ AppPermissions: Unknown photo permission status")
+                call.resolve([
+                    "granted": false,
+                    "status": "prompt",
+                    "message": "Unknown permission status"
+                ])
+            }
+        } else {
+            // iOS 13 and below - no limited access concept
+            print("ℹ️ AppPermissions: iOS 13 detected - no limited access concept")
+            let currentStatus = PHPhotoLibrary.authorizationStatus()
+            
+            if currentStatus == .authorized {
+                call.resolve([
+                    "granted": true,
+                    "status": "granted",
+                    "message": "Full access available on iOS 13"
+                ])
+            } else {
+                call.resolve([
+                    "granted": false,
+                    "status": currentStatus == .denied ? "denied" : "prompt",
+                    "message": "Limited access not available on iOS 13"
                 ])
             }
         }

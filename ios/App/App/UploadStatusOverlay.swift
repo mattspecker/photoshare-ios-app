@@ -53,6 +53,16 @@ public class UploadStatusOverlay: CAPPlugin, CAPBridgedPlugin {
         
         print("🔧 showOverlay called with mode: '\(mode)', title: '\(title ?? "nil")', eventName: '\(eventName ?? "nil")'")
         
+        // Check if auto-upload is enabled before showing overlay
+        let autoUploadEnabled = UserDefaults.standard.bool(forKey: "userAutoUploadEnabled")
+        print("🔍 Auto-upload enabled: \(autoUploadEnabled)")
+        
+        guard autoUploadEnabled else {
+            print("⏸️ Auto-upload disabled - not showing overlay")
+            call.resolve()
+            return
+        }
+        
         DispatchQueue.main.async {
             switch mode {
             case "scanning":
@@ -130,6 +140,16 @@ public class UploadStatusOverlay: CAPPlugin, CAPBridgedPlugin {
     @objc func setMode(_ call: CAPPluginCall) {
         let mode = call.getString("mode") ?? "uploading"
         let eventName = call.getString("eventName")
+        
+        // Check if auto-upload is enabled before changing overlay mode
+        let autoUploadEnabled = UserDefaults.standard.bool(forKey: "userAutoUploadEnabled")
+        print("🔍 setMode - Auto-upload enabled: \(autoUploadEnabled)")
+        
+        guard autoUploadEnabled else {
+            print("⏸️ Auto-upload disabled - not setting overlay mode")
+            call.resolve()
+            return
+        }
         
         DispatchQueue.main.async {
             switch mode {
@@ -234,6 +254,14 @@ public class UploadStatusOverlay: CAPPlugin, CAPBridgedPlugin {
     static var shared: UploadStatusOverlay?
     
     @objc static func showForAutoUpload(eventName: String) {
+        let autoUploadEnabled = UserDefaults.standard.bool(forKey: "userAutoUploadEnabled")
+        print("🔍 Static showForAutoUpload - Auto-upload enabled: \(autoUploadEnabled)")
+        
+        guard autoUploadEnabled else {
+            print("⏸️ Auto-upload disabled - not showing static overlay")
+            return
+        }
+        
         shared?.currentMode = .scanning(eventName: eventName)
         shared?.showNativeOverlay()
     }
@@ -285,6 +313,23 @@ class UploadOverlayViewController: UIViewController {
     
     var onClose: (() -> Void)?
     
+    // MARK: - Theme Support
+    private var isDarkMode: Bool {
+        if #available(iOS 13.0, *) {
+            return traitCollection.userInterfaceStyle == .dark
+        } else {
+            return false
+        }
+    }
+    
+    private func textColor() -> UIColor {
+        return isDarkMode ? .white : UIColor(red: 0.129, green: 0.129, blue: 0.129, alpha: 1.0)
+    }
+    
+    private func borderColor() -> UIColor {
+        return isDarkMode ? UIColor(red: 0.2, green: 0.23, blue: 0.33, alpha: 1.0) : UIColor(red: 0.886, green: 0.910, blue: 0.941, alpha: 1.0)
+    }
+    
     private var dotAnimationTimer: Timer?
     private var currentDotCount = 0
     private var eventNames = ["Birthday Party", "Team Meetup", "Weekend Trip", "Family Gathering", "Conference 2024"]
@@ -332,6 +377,37 @@ class UploadOverlayViewController: UIViewController {
         }
     }
     
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        
+        if #available(iOS 13.0, *) {
+            if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
+                // Theme changed, update colors
+                updateThemeColors()
+            }
+        }
+    }
+    
+    private func updateThemeColors() {
+        // Update all text colors
+        headerLabel.textColor = textColor()
+        closeButton.tintColor = textColor()
+        
+        // Update border color
+        view.subviews.forEach { subview in
+            if let containerView = subview as? UIView {
+                containerView.subviews.forEach { containerSubview in
+                    if containerSubview.tag == 999 { // We'll tag the border view
+                        containerSubview.backgroundColor = borderColor()
+                    }
+                }
+            }
+        }
+        
+        // Update icon colors based on current mode
+        updateUI()
+    }
+    
     // MARK: - Setup
     private func setupViews() {
         // Make background transparent
@@ -346,9 +422,10 @@ class UploadOverlayViewController: UIViewController {
         containerView.layer.shadowRadius = 8
         containerView.layer.shadowOpacity = 0.1
         
-        // Top border with specified color
+        // Top border with theme-aware color
         let topBorder = UIView()
-        topBorder.backgroundColor = UIColor(red: 0.886, green: 0.910, blue: 0.941, alpha: 1.0) // #e2e8f0
+        topBorder.backgroundColor = borderColor() // Dynamic border color
+        topBorder.tag = 999 // Tag for theme updates
         topBorder.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(topBorder)
         
@@ -366,9 +443,9 @@ class UploadOverlayViewController: UIViewController {
         iconImageView.contentMode = .center
         iconImageView.tintColor = .systemBlue
         
-        // Header with Outfit font (16sp semibold, #212121)
+        // Header with Outfit font (16sp semibold) - dynamic color for dark mode
         headerLabel.font = outfitFont(size: 16, weight: .semibold)
-        headerLabel.textColor = UIColor(red: 0.129, green: 0.129, blue: 0.129, alpha: 1.0) // #212121
+        headerLabel.textColor = textColor() // Dynamic color based on theme
         headerLabel.numberOfLines = 0  // Allow multiple lines in case text is long
         headerLabel.adjustsFontSizeToFitWidth = true
         headerLabel.minimumScaleFactor = 0.8
@@ -386,11 +463,11 @@ class UploadOverlayViewController: UIViewController {
         progressView.layer.cornerRadius = 4
         progressView.clipsToBounds = true
         
-        // Close button with SF Symbol (16px, 32x32px touch area, #212121)
+        // Close button with SF Symbol (16px, 32x32px touch area) - dynamic color
         let closeConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         let closeImage = UIImage(systemName: "xmark", withConfiguration: closeConfig)
         closeButton.setImage(closeImage, for: .normal)
-        closeButton.tintColor = UIColor(red: 0.129, green: 0.129, blue: 0.129, alpha: 1.0) // #212121
+        closeButton.tintColor = textColor() // Dynamic color for close button
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         
         // Add subviews
@@ -525,7 +602,7 @@ class UploadOverlayViewController: UIViewController {
             
             let symbolConfig = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
             iconImageView.image = UIImage(systemName: "photo", withConfiguration: symbolConfig)
-            iconImageView.tintColor = UIColor(red: 0.129, green: 0.129, blue: 0.129, alpha: 1.0) // #212121
+            iconImageView.tintColor = textColor() // Dynamic color for photo icon
         }
     }
     
@@ -539,7 +616,7 @@ class UploadOverlayViewController: UIViewController {
         
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
         iconImageView.image = UIImage(systemName: "magnifyingglass.circle.fill", withConfiguration: symbolConfig)
-        iconImageView.tintColor = UIColor(red: 0.129, green: 0.129, blue: 0.129, alpha: 1.0) // #212121
+        iconImageView.tintColor = textColor() // Dynamic color for scanning icon
         
         // Store real event name and use it
         realEventName = eventName
@@ -569,7 +646,7 @@ class UploadOverlayViewController: UIViewController {
         
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
         iconImageView.image = UIImage(systemName: "arrow.down.circle.fill", withConfiguration: symbolConfig)
-        iconImageView.tintColor = UIColor(red: 0.129, green: 0.129, blue: 0.129, alpha: 1.0) // #212121
+        iconImageView.tintColor = textColor() // Dynamic color for getting events icon
         
         // Set header text immediately first
         headerLabel.text = "Getting Events for Auto Upload"
